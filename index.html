@@ -435,15 +435,24 @@
             <div class="min-w-0">
               <p class="truncate text-sm font-bold tracking-tight">大学生自学进度管理系统</p>
               <p class="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
-                Self-study Progress · Phase 07
+                Self-study Progress · Phase 08
               </p>
             </div>
           </div>
 
           <div class="flex shrink-0 items-center gap-2">
+            <div
+              class="inline-flex shrink-0 items-center rounded-full border px-2.5 py-1.5 text-[10px] font-bold backdrop-blur transition-colors duration-200"
+              :class="cloudStatusClass"
+              :title="cloudStatusTitle"
+              role="status"
+              aria-live="polite"
+              aria-label="云端同步状态"
+            >{{ cloudStatusText }}</div>
+
             <div class="hidden shrink-0 items-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-3 py-1.5 text-[11px] font-medium text-slate-500 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-400 sm:flex">
               <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
-              localStorage 自动保存
+              本地缓存
             </div>
 
             <button
@@ -1194,7 +1203,7 @@
           </div>
 
           <p class="pt-5 text-center text-[10px] text-slate-400 dark:text-slate-500">
-            学习进度自动保存在当前浏览器中，数据不会上传到服务器。
+            学习进度会保存在本地，并自动同步到云端；断网时仍可继续使用。
           </p>
         </section>
       </main>
@@ -1945,6 +1954,11 @@
     const TOAST_DURATION = 5000;
     const NOTE_COUNT_DEBOUNCE = 300;
     const NOTE_SAVE_DEBOUNCE = 400;
+    const CLOUD_SAVE_DEBOUNCE = 1000;
+    const CLOUD_REQUEST_TIMEOUT = 15000;
+    const JSONBIN_BIN_ID = '6b03f4b7ac6210605a9d6716';
+    const JSONBIN_MASTER_KEY = '$2a$10$FLxZedSc.HHSMPYBgbmtDeNUUZ5qhzy9ZhGkIn4Mr/GI5tvENNoMG';
+    const JSONBIN_BASE_URL = 'https://api.jsonbin.io/v3/b/' + JSONBIN_BIN_ID;
     const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 
     /* ----------------------------- 初始示例数据 ----------------------------- */
@@ -2400,6 +2414,45 @@
         const initial = loadAppData();
 
         const storageFailed = ref(false);
+        const cloudStatus = ref('loading');
+        const cloudErrorDetail = ref('');
+        const cloudLastSyncedAt = ref('');
+        let cloudReady = false;
+        let cloudSaveInFlight = false;
+        let cloudSaveQueued = false;
+
+        const cloudStatusText = computed(function () {
+          if (cloudStatus.value === 'loading') return '⏳ 加载中...';
+          if (cloudStatus.value === 'syncing') return '☁️ 同步中...';
+          if (cloudStatus.value === 'error') return '❌ 同步失败';
+          return '✅ 已同步';
+        });
+
+        const cloudStatusClass = computed(function () {
+          if (cloudStatus.value === 'loading') {
+            return 'border-amber-200/80 bg-amber-50/80 text-amber-700 dark:border-amber-800/70 dark:bg-amber-950/40 dark:text-amber-300';
+          }
+          if (cloudStatus.value === 'syncing') {
+            return 'border-sky-200/80 bg-sky-50/80 text-sky-700 dark:border-sky-800/70 dark:bg-sky-950/40 dark:text-sky-300';
+          }
+          if (cloudStatus.value === 'error') {
+            return 'border-rose-200/80 bg-rose-50/80 text-rose-700 dark:border-rose-800/70 dark:bg-rose-950/40 dark:text-rose-300';
+          }
+          return 'border-emerald-200/80 bg-emerald-50/80 text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/40 dark:text-emerald-300';
+        });
+
+        const cloudStatusTitle = computed(function () {
+          if (cloudStatus.value === 'error') {
+            return cloudErrorDetail.value ? '云端同步失败：' + cloudErrorDetail.value : '云端同步失败，数据已保存在本地';
+          }
+          if (cloudStatus.value === 'synced' && cloudLastSyncedAt.value) {
+            return '最近同步时间：' + cloudLastSyncedAt.value;
+          }
+          if (cloudStatus.value === 'loading') return '正在从 JSONBin 加载云端数据';
+          if (cloudStatus.value === 'syncing') return '正在将最新数据保存到 JSONBin';
+          return '数据已同步到 JSONBin';
+        });
+
         const state = reactive({
           subjects: initial.subjects,
           tasks: initial.tasks,
@@ -2479,7 +2532,7 @@
         // 备注保存同样使用防抖，减少长文本输入时频繁写入 localStorage
         const scheduleNoteSave = debounce(function () {
           if (!noteSaveDirty) return;
-          persist();
+          persist({ skipCloud: true });
           noteSaveDirty = false;
         }, NOTE_SAVE_DEBOUNCE);
 
@@ -2514,12 +2567,13 @@
           scheduleNoteCount(chapter);
           noteSaveDirty = true;
           scheduleNoteSave();
+          queueCloudSave();
         }
 
         function flushNotePersistence() {
           scheduleNoteSave.cancel();
           if (noteSaveDirty) {
-            persist();
+            persist({ skipCloud: true });
             noteSaveDirty = false;
           }
         }
@@ -2605,42 +2659,212 @@
           noteTooltip.visible = false;
         }
 
-        /* ---------- 持久化 ---------- */
-        function persist() {
+        /* ---------- 本地 + 云端持久化 ---------- */
+        function buildPersistedPayload() {
+          return {
+            version: 3,
+            savedAt: new Date().toISOString(),
+            subjects: state.subjects.map(function (subject) {
+              return {
+                id: subject.id,
+                name: subject.name,
+                chapters: subject.chapters.map(function (chapter) {
+                  return {
+                    id: chapter.id,
+                    name: chapter.name,
+                    theory: chapter.theory === true,
+                    practice: chapter.practice === true,
+                    note: typeof chapter.note === 'string' ? chapter.note : ''
+                  };
+                })
+              };
+            }),
+            tasks: state.tasks.map(function (task) {
+              return {
+                id: task.id,
+                chapterId: task.chapterId,
+                type: task.type,
+                day: task.day,
+                originalDay: task.originalDay,
+                createdAt: task.createdAt
+              };
+            })
+          };
+        }
+
+        function queueCloudSave() {
+          if (!cloudReady) return;
+          scheduleCloudSave();
+        }
+
+        const scheduleCloudSave = debounce(function () {
+          void pushCloudData();
+        }, CLOUD_SAVE_DEBOUNCE);
+
+        function persist(options) {
+          const skipCloud = Boolean(options && options.skipCloud);
           try {
-            const payload = {
-              version: 3,
-              savedAt: new Date().toISOString(),
-              subjects: state.subjects.map(function (subject) {
-                return {
-                  id: subject.id,
-                  name: subject.name,
-                  chapters: subject.chapters.map(function (chapter) {
-                    return {
-                      id: chapter.id,
-                      name: chapter.name,
-                      theory: chapter.theory === true,
-                      practice: chapter.practice === true,
-                      note: typeof chapter.note === 'string' ? chapter.note : ''
-                    };
-                  })
-                };
-              }),
-              tasks: state.tasks.map(function (task) {
-                return {
-                  id: task.id,
-                  chapterId: task.chapterId,
-                  type: task.type,
-                  day: task.day,
-                  originalDay: task.originalDay,
-                  createdAt: task.createdAt
-                };
-              })
-            };
+            const payload = buildPersistedPayload();
             window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
             storageFailed.value = false;
           } catch (error) {
             storageFailed.value = true;
+          }
+          if (!skipCloud) queueCloudSave();
+        }
+
+        /* ---------- JSONBin 云同步 ---------- */
+        function markCloudSynced() {
+          cloudStatus.value = 'synced';
+          cloudErrorDetail.value = '';
+          cloudLastSyncedAt.value = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        }
+
+        function markCloudError(error) {
+          cloudStatus.value = 'error';
+          const message = error && error.name === 'AbortError'
+            ? '请求超时'
+            : (error && error.message ? error.message : '网络请求失败');
+          cloudErrorDetail.value = String(message).slice(0, 180);
+        }
+
+        async function cloudRequest(url, options) {
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          let timeout = null;
+          if (controller) {
+            timeout = setTimeout(function () { controller.abort(); }, CLOUD_REQUEST_TIMEOUT);
+          }
+          try {
+            return await fetch(url, Object.assign({}, options, controller ? { signal: controller.signal } : {}));
+          } finally {
+            if (timeout) clearTimeout(timeout);
+          }
+        }
+
+        function isValidCloudPayload(value) {
+          return Boolean(
+            value &&
+            typeof value === 'object' &&
+            Array.isArray(value.subjects) &&
+            value.subjects.length > 0 &&
+            Array.isArray(value.tasks)
+          );
+        }
+
+        function extractCloudPayload(record) {
+          if (!record || typeof record !== 'object') return null;
+          if (isValidCloudPayload(record)) return record;
+          // 兼容 Bin 中预先存在的 { study: {...} } 结构
+          if (isValidCloudPayload(record.study)) return record.study;
+          return null;
+        }
+
+        function applyCloudPayload(payload) {
+          const subjects = parseStoredSubjects(payload);
+          const tasks = parseStoredTasks(payload, subjects);
+          subjects.forEach(function (subject) { subject.treeCollapsed = false; });
+
+          scheduleNoteSave.cancel();
+          noteSaveDirty = false;
+          noteCountDebouncers.forEach(function (debounced) { debounced.cancel(); });
+          noteCountDebouncers.clear();
+          openNotes.clear();
+          Object.keys(noteCounts).forEach(function (key) { delete noteCounts[key]; });
+          subjects.forEach(function (subject) {
+            subject.chapters.forEach(function (chapter) {
+              noteCounts[chapter.id] = countCharacters(chapter.note);
+            });
+          });
+
+          if (toastTimer) {
+            clearTimeout(toastTimer);
+            toastTimer = null;
+          }
+          toast.visible = false;
+          hideNoteTooltip();
+          taskModalOpen.value = false;
+          treeDrawerOpen.value = false;
+          selectedTreeSubject.value = null;
+          selectedTreeChapter.value = null;
+          focusedSubjectId.value = '';
+          draggingTaskId.value = null;
+          dragOverDay.value = null;
+          dragOverComplete.value = false;
+
+          state.subjects = subjects;
+          state.tasks = tasks;
+          persist({ skipCloud: true });
+
+          if (state.activeTab === 'knowledge' && state.knowledgeView === 'tree') {
+            nextTick(function () {
+              if (state.activeTab === 'knowledge' && state.knowledgeView === 'tree') enterTreeCanvas();
+            });
+          }
+        }
+
+        async function pushCloudData() {
+          if (!cloudReady) return;
+          if (cloudSaveInFlight) {
+            cloudSaveQueued = true;
+            return;
+          }
+
+          cloudSaveInFlight = true;
+          cloudStatus.value = 'syncing';
+          cloudErrorDetail.value = '';
+          try {
+            const response = await cloudRequest(JSONBIN_BASE_URL, {
+              method: 'PUT',
+              headers: {
+                'X-Master-Key': JSONBIN_MASTER_KEY,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(buildPersistedPayload()),
+              cache: 'no-store'
+            });
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            markCloudSynced();
+          } catch (error) {
+            markCloudError(error);
+          } finally {
+            cloudSaveInFlight = false;
+            if (cloudSaveQueued) {
+              cloudSaveQueued = false;
+              scheduleCloudSave();
+            }
+          }
+        }
+
+        async function loadCloudData() {
+          cloudStatus.value = 'loading';
+          cloudErrorDetail.value = '';
+          try {
+            const response = await cloudRequest(JSONBIN_BASE_URL + '/latest', {
+              method: 'GET',
+              headers: {
+                'X-Master-Key': JSONBIN_MASTER_KEY,
+                'Accept': 'application/json'
+              },
+              cache: 'no-store'
+            });
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const data = await response.json();
+            const payload = extractCloudPayload(data && data.record);
+
+            if (payload) {
+              applyCloudPayload(payload);
+              cloudReady = true;
+              markCloudSynced();
+            } else {
+              // 云端还没有本应用的数据：保留当前本地数据，并初始化上传
+              cloudReady = true;
+              cloudStatus.value = 'syncing';
+              await pushCloudData();
+            }
+          } catch (error) {
+            // 网络或 API 异常时保持本地数据可用，继续依赖 localStorage
+            cloudReady = true;
+            markCloudError(error);
           }
         }
 
@@ -3572,12 +3796,14 @@
           window.addEventListener('scroll', hideNoteTooltip, true);
           window.addEventListener('resize', handleWindowResize);
           window.addEventListener('beforeunload', flushNotePersistence);
+          void loadCloudData();
         });
 
         onBeforeUnmount(function () {
           if (toastTimer) clearTimeout(toastTimer);
           flushNotePersistence();
           scheduleNoteSave.cancel();
+          scheduleCloudSave.cancel();
           noteCountDebouncers.forEach(function (debounced) { debounced.cancel(); });
           noteCountDebouncers.clear();
           if (treeConnectionsRaf) cancelAnimationFrame(treeConnectionsRaf);
@@ -3592,12 +3818,16 @@
           document.body.style.overflow = '';
         });
 
-        // 初次加载立即保存：旧版数据会在这里升级为 v3，并补上示例周任务
-        persist();
+        // 初次加载先写入本地缓存，云端数据在 onMounted 中覆盖
+        persist({ skipCloud: true });
 
         return {
           state,
           storageFailed,
+          cloudStatus,
+          cloudStatusText,
+          cloudStatusClass,
+          cloudStatusTitle,
           importMessage,
           toast,
           darkMode,
