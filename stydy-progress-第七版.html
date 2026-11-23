@@ -1,0 +1,3703 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="大学生自学进度管理系统 · 知识库 + 周计划" />
+  <meta name="color-scheme" content="light dark" />
+  <title>自学进度管理系统 · 知识库 × 周计划</title>
+
+  <!-- 尽早应用已保存的暗色偏好，避免页面闪烁 -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('college-self-study-theme');
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (saved === 'dark' || (!saved && prefersDark)) {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (error) { /* localStorage 不可用时保持浅色 */ }
+    })();
+  </script>
+  <!-- Vue 3（CDN） -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Pan & Zoom 画布（CDN，含备用源） -->
+  <script src="https://cdn.jsdelivr.net/npm/@panzoom/panzoom/dist/panzoom.min.js"></script>
+  <script>
+    if (!window.Panzoom) {
+      document.write('<script src="https://unpkg.com/@panzoom/panzoom/dist/panzoom.min.js"><\/script>');
+    }
+  </script>
+  <!-- Tailwind CSS（CDN） -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: [
+              '"Segoe UI"',
+              '"PingFang SC"',
+              '"Hiragino Sans GB"',
+              '"Microsoft YaHei"',
+              'system-ui',
+              'sans-serif'
+            ]
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    [v-cloak] { display: none !important; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      background-color: #f7f8fc;
+      background-image:
+        radial-gradient(ellipse 70% 45% at 8% -5%, rgba(99, 102, 241, 0.12), transparent),
+        radial-gradient(ellipse 55% 40% at 100% 0%, rgba(16, 185, 129, 0.08), transparent),
+        linear-gradient(rgba(15, 23, 42, 0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(15, 23, 42, 0.022) 1px, transparent 1px);
+      background-size: auto, auto, 36px 36px, 36px 36px;
+    }
+
+    ::selection { background: rgba(99, 102, 241, 0.2); }
+
+    .gradient-text {
+      background: linear-gradient(115deg, #4f46e5 0%, #0284c7 52%, #059669 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .soft-shadow {
+      box-shadow: 0 28px 70px -46px rgba(15, 23, 42, 0.4),
+                  0 3px 10px -6px rgba(15, 23, 42, 0.08);
+    }
+
+    /* ---------- 知识库手风琴 ---------- */
+    .accordion-body {
+      display: grid;
+      grid-template-rows: 0fr;
+      transition: grid-template-rows 320ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .accordion-body.is-open { grid-template-rows: 1fr; }
+    .accordion-inner { min-height: 0; overflow: hidden; }
+
+    .chapter-row {
+      border: 1px solid transparent;
+      transition: background-color 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+    }
+    .chapter-row.row-todo {
+      background: rgba(255, 255, 255, 0.86);
+      border-color: #e7eaf0;
+    }
+    .chapter-row.row-partial {
+      background: #fffbeb;
+      border-color: #fde68a;
+    }
+    .chapter-row.row-done {
+      background: #ecfdf5;
+      border-color: #a7f3d0;
+    }
+    .chapter-row:hover { box-shadow: 0 6px 18px -14px rgba(15, 23, 42, 0.5); }
+
+    .complete-pop { animation: complete-pop 260ms ease-out both; }
+    @keyframes complete-pop {
+      0% { transform: scale(0.5); opacity: 0; }
+      70% { transform: scale(1.12); }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    /* ---------- 周计划看板 ---------- */
+    .kanban-column {
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+    .kanban-column.is-today {
+      background: rgba(238, 242, 255, 0.78);
+      border-color: #c7d2fe;
+    }
+    .kanban-column.is-drag-over {
+      background: #eef2ff;
+      border-color: #818cf8;
+      box-shadow: inset 0 0 0 2px rgba(99, 102, 241, 0.14);
+    }
+
+    .task-card {
+      background: #ffffff;
+      border: 1px solid #e5e9f0;
+      border-radius: 14px;
+      padding: 11px;
+      cursor: grab;
+      box-shadow: 0 4px 12px -10px rgba(15, 23, 42, 0.45);
+      transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, opacity 180ms ease;
+    }
+    .task-card:hover {
+      border-color: #c7d2fe;
+      box-shadow: 0 10px 24px -18px rgba(49, 46, 129, 0.55);
+      transform: translateY(-1px);
+    }
+    .task-card:active { cursor: grabbing; }
+    .task-card.is-dragging {
+      opacity: 0.42;
+      transform: rotate(1.2deg) scale(0.985);
+    }
+
+    .completed-drop {
+      transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+    .completed-drop.is-drag-over {
+      background: #d1fae5;
+      border-color: #10b981;
+      box-shadow: inset 0 0 0 2px rgba(16, 185, 129, 0.12);
+    }
+
+    .nice-scroll { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+    .nice-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+    .nice-scroll::-webkit-scrollbar-track { background: transparent; }
+    .nice-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    .nice-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* ---------- 今日聚焦全屏 ---------- */
+    .focus-shell {
+      background-color: #fbfcff;
+      background-image:
+        radial-gradient(ellipse 55% 42% at 50% -5%, rgba(99, 102, 241, 0.14), transparent),
+        radial-gradient(ellipse 30% 25% at 100% 100%, rgba(16, 185, 129, 0.1), transparent),
+        linear-gradient(rgba(15, 23, 42, 0.022) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(15, 23, 42, 0.022) 1px, transparent 1px);
+      background-size: auto, auto, 36px 36px, 36px 36px;
+    }
+
+    /* ---------- Toast / 弹层过渡 ---------- */
+    .toast-progress {
+      transform-origin: left center;
+      animation: toast-countdown 5s linear forwards;
+    }
+    @keyframes toast-countdown {
+      from { transform: scaleX(1); }
+      to { transform: scaleX(0); }
+    }
+
+    .toast-enter-active,
+    .toast-leave-active { transition: opacity 180ms ease, transform 220ms ease; }
+    .toast-enter-from,
+    .toast-leave-to { opacity: 0; transform: translateY(12px); }
+
+    .modal-enter-active,
+    .modal-leave-active { transition: opacity 200ms ease; }
+    .modal-enter-active .modal-panel,
+    .modal-leave-active .modal-panel { transition: opacity 220ms ease, transform 250ms cubic-bezier(0.4, 0, 0.2, 1); }
+    .modal-enter-from,
+    .modal-leave-to { opacity: 0; }
+    .modal-enter-from .modal-panel,
+    .modal-leave-to .modal-panel { opacity: 0; transform: translateY(20px) scale(0.985); }
+
+    .focus-enter-active,
+    .focus-leave-active { transition: opacity 230ms ease, transform 260ms ease; }
+    .focus-enter-from,
+    .focus-leave-to { opacity: 0; transform: scale(1.012); }
+
+    /* ---------- 备注 Tooltip ---------- */
+    .note-tooltip {
+      position: fixed;
+      z-index: 130;
+      max-height: min(320px, calc(100dvh - 24px));
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #64748b transparent;
+    }
+    .tooltip-enter-active,
+    .tooltip-leave-active { transition: opacity 140ms ease, transform 160ms ease; }
+    .tooltip-enter-from,
+    .tooltip-leave-to { opacity: 0; transform: translateY(4px) scale(0.98); }
+
+    /* ---------- 横向技能树 ---------- */
+    .tree-viewport {
+      position: relative;
+      height: clamp(560px, 68vh, 840px);
+      overflow: hidden;
+      background-color: #f8fafc;
+    }
+    .dark .tree-viewport { background-color: #070b14; }
+
+    .tree-world {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 6400px;
+      height: 4800px;
+      transform-origin: 0 0;
+      cursor: grab;
+      user-select: none;
+    }
+    .tree-world:active { cursor: grabbing; }
+
+    .tree-surface {
+      background-color: #fbfcff;
+      background-image: radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.23) 1px, transparent 0);
+      background-size: 24px 24px;
+    }
+    .dark .tree-surface {
+      background-color: #080e19;
+      background-image: radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.13) 1px, transparent 0);
+    }
+
+    .tree-svg {
+      pointer-events: none;
+      overflow: visible;
+    }
+    .tree-line {
+      fill: none;
+      stroke: #cbd5e1;
+      stroke-width: 2;
+      stroke-linecap: butt;
+      stroke-linejoin: miter;
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+      animation: draw-tree-line 620ms ease-out forwards;
+    }
+    .tree-dot {
+      fill: #fbfcff;
+      stroke: #cbd5e1;
+      stroke-width: 2;
+    }
+    .dark .tree-line { stroke: #475569; }
+    .dark .tree-dot { fill: #080e19; stroke: #475569; }
+    @keyframes draw-tree-line {
+      to { stroke-dashoffset: 0; }
+    }
+
+    .node-port { box-shadow: 0 0 0 3px rgba(251, 252, 255, 0.92); }
+    .dark .node-port { box-shadow: 0 0 0 3px rgba(8, 14, 25, 0.92); }
+
+    .tree-fade-enter-active,
+    .tree-fade-leave-active { transition: opacity 220ms ease; }
+    .tree-fade-enter-from,
+    .tree-fade-leave-to { opacity: 0; }
+
+    .tree-drawer-enter-active,
+    .tree-drawer-leave-active { transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1); }
+    .tree-drawer-enter-from,
+    .tree-drawer-leave-to { transform: translateX(100%); }
+
+    .drawer-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: #cbd5e1 transparent;
+    }
+    .drawer-scroll::-webkit-scrollbar { width: 8px; }
+    .drawer-scroll::-webkit-scrollbar-track { background: transparent; }
+    .drawer-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    .dark .drawer-scroll { scrollbar-color: #475569 transparent; }
+    .dark .drawer-scroll::-webkit-scrollbar-thumb { background: #475569; }
+
+    /* ---------- 暗色模式 ---------- */
+    html.dark { color-scheme: dark; }
+
+    .dark body {
+      background-color: #070b14;
+      background-image:
+        radial-gradient(ellipse 70% 45% at 8% -5%, rgba(99, 102, 241, 0.18), transparent),
+        radial-gradient(ellipse 55% 40% at 100% 0%, rgba(16, 185, 129, 0.1), transparent),
+        linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px);
+      background-size: auto, auto, 36px 36px, 36px 36px;
+    }
+
+    .dark .gradient-text {
+      background: linear-gradient(115deg, #818cf8 0%, #38bdf8 52%, #34d399 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .dark ::selection { background: rgba(129, 140, 248, 0.3); }
+
+    .dark .soft-shadow {
+      box-shadow: 0 28px 70px -40px rgba(0, 0, 0, 0.85),
+                  0 3px 10px -6px rgba(0, 0, 0, 0.35);
+    }
+
+    .dark .chapter-row.row-todo {
+      background: rgba(15, 23, 42, 0.72);
+      border-color: #334155;
+    }
+    .dark .chapter-row.row-partial {
+      background: rgba(120, 53, 15, 0.24);
+      border-color: #92400e;
+    }
+    .dark .chapter-row.row-done {
+      background: rgba(6, 78, 59, 0.34);
+      border-color: #047857;
+    }
+    .dark .chapter-row:hover { box-shadow: 0 8px 22px -16px rgba(0, 0, 0, 0.85); }
+
+    .dark .kanban-column {
+      background: rgba(15, 23, 42, 0.68);
+      border-color: #334155;
+    }
+    .dark .kanban-column.is-today {
+      background: rgba(49, 46, 129, 0.26);
+      border-color: #4f46e5;
+    }
+    .dark .kanban-column.is-drag-over {
+      background: rgba(49, 46, 129, 0.42);
+      border-color: #818cf8;
+      box-shadow: inset 0 0 0 2px rgba(129, 140, 248, 0.22);
+    }
+
+    .dark .task-card {
+      background: #0f172a;
+      border-color: #334155;
+      box-shadow: 0 5px 16px -12px rgba(0, 0, 0, 0.9);
+    }
+    .dark .task-card:hover {
+      border-color: #6366f1;
+      box-shadow: 0 12px 28px -20px rgba(0, 0, 0, 0.95);
+    }
+
+    .dark .completed-drop.is-drag-over {
+      background: rgba(6, 78, 59, 0.58);
+      border-color: #10b981;
+      box-shadow: inset 0 0 0 2px rgba(16, 185, 129, 0.2);
+    }
+
+    .dark .focus-shell {
+      background-color: #070b14;
+      background-image:
+        radial-gradient(ellipse 55% 42% at 50% -5%, rgba(99, 102, 241, 0.2), transparent),
+        radial-gradient(ellipse 30% 25% at 100% 100%, rgba(16, 185, 129, 0.1), transparent),
+        linear-gradient(rgba(148, 163, 184, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.045) 1px, transparent 1px);
+      background-size: auto, auto, 36px 36px, 36px 36px;
+    }
+
+    .dark .nice-scroll { scrollbar-color: #475569 transparent; }
+    .dark .nice-scroll::-webkit-scrollbar-thumb { background: #475569; }
+    .dark .nice-scroll::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+    @media (max-width: 640px) {
+      .modal-enter-from .modal-panel,
+      .modal-leave-to .modal-panel { transform: translateY(100%); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .accordion-body,
+      .chapter-row,
+      .complete-pop,
+      .task-card,
+      .toast-progress,
+      .toast-enter-active,
+      .toast-leave-active,
+      .tooltip-enter-active,
+      .tooltip-leave-active,
+      .modal-enter-active,
+      .modal-leave-active,
+      .modal-enter-active .modal-panel,
+      .modal-leave-active .modal-panel,
+      .focus-enter-active,
+      .focus-leave-active,
+      .tree-line,
+      .tree-fade-enter-active,
+      .tree-fade-leave-active,
+      .tree-drawer-enter-active,
+      .tree-drawer-leave-active {
+        transition: none !important;
+        animation: none !important;
+      }
+      .tree-line { stroke-dashoffset: 0; }
+    }
+  </style>
+</head>
+
+<body class="min-h-screen bg-[#f7f8fc] text-slate-900 antialiased dark:bg-[#070b14] dark:text-slate-100">
+  <div id="app" v-cloak>
+    <div
+      class="mx-auto w-full px-4 pb-32 pt-5 sm:px-6 sm:pt-7"
+      :class="[
+        (state.activeTab === 'week' || state.knowledgeView === 'tree') ? 'max-w-[1440px]' : 'max-w-5xl',
+        state.activeTab === 'knowledge' && state.knowledgeView === 'tree' ? 'lg:pl-[248px]' : ''
+      ]"
+    >
+      <!-- 品牌与 Tab -->
+      <header>
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex min-w-0 items-center gap-3">
+            <div class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-slate-900 text-lg text-white shadow-lg shadow-slate-900/20 dark:bg-indigo-500 dark:shadow-indigo-950/40">
+              📘
+            </div>
+            <div class="min-w-0">
+              <p class="truncate text-sm font-bold tracking-tight">大学生自学进度管理系统</p>
+              <p class="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">
+                Self-study Progress · Phase 07
+              </p>
+            </div>
+          </div>
+
+          <div class="flex shrink-0 items-center gap-2">
+            <div class="hidden shrink-0 items-center gap-2 rounded-full border border-slate-200/80 bg-white/70 px-3 py-1.5 text-[11px] font-medium text-slate-500 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/70 dark:text-slate-400 sm:flex">
+              <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+              localStorage 自动保存
+            </div>
+
+            <button
+              type="button"
+              @click="toggleDarkMode"
+              :aria-pressed="darkMode"
+              :aria-label="darkMode ? '切换到浅色模式' : '切换到暗色模式'"
+              :title="darkMode ? '切换到浅色模式' : '切换到暗色模式'"
+              class="grid h-9 w-9 place-items-center rounded-full border border-slate-200/80 bg-slate-100 text-slate-600 shadow-sm transition hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:border-slate-700/70 dark:bg-slate-800 dark:text-amber-300 dark:hover:bg-slate-700 dark:hover:text-amber-200 dark:focus-visible:ring-offset-slate-950"
+            >
+              <svg v-if="darkMode" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2.25a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V3a.75.75 0 0 1 .75-.75ZM7.5 12a4.5 4.5 0 1 1 9 0 4.5 4.5 0 0 1-9 0Zm8.894-6.364a.75.75 0 0 1 1.06 0l1.591 1.59a.75.75 0 1 1-1.06 1.061l-1.591-1.59a.75.75 0 0 1 0-1.061Zm-9.849 0a.75.75 0 0 1 0 1.06l-1.59 1.591a.75.75 0 1 1-1.061-1.06l1.59-1.591a.75.75 0 0 1 1.061 0Zm12.705 5.614a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V12a.75.75 0 0 1 .75-.75Zm-16.5 0a.75.75 0 0 1 .75.75v2.25a.75.75 0 0 1-1.5 0V12a.75.75 0 0 1 .75-.75Zm13.75 5.415a.75.75 0 0 1 1.06 0l1.591 1.591a.75.75 0 0 1-1.06 1.06l-1.591-1.59a.75.75 0 0 1 0-1.061Zm-9.849 0a.75.75 0 0 1 0 1.06l-1.59 1.592a.75.75 0 0 1-1.061-1.061l1.59-1.591a.75.75 0 0 1 1.061 0ZM12 18.75a.75.75 0 0 1 .75.75V21a.75.75 0 0 1-1.5 0v-1.5a.75.75 0 0 1 .75-.75Z" />
+              </svg>
+              <svg v-else class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 0 1 .162.819A8.97 8.97 0 0 0 9 6a9 9 0 0 0 9 9 8.97 8.97 0 0 0 3.463-.69.75.75 0 0 1 .981.98 10.503 10.503 0 0 1-9.694 6.46c-5.799 0-10.5-4.7-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 0 1 .818.162Z" clip-rule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-6 flex flex-wrap items-center justify-between gap-3">
+          <div
+            role="tablist"
+            aria-label="功能模块"
+            class="inline-flex items-center gap-1 rounded-2xl border border-slate-200/90 dark:border-slate-700/80 bg-white/80 dark:bg-slate-900/80 p-1 shadow-sm backdrop-blur"
+          >
+            <button
+              id="tab-knowledge"
+              type="button"
+              role="tab"
+              aria-controls="panel-knowledge"
+              :aria-selected="state.activeTab === 'knowledge'"
+              :tabindex="state.activeTab === 'knowledge' ? 0 : -1"
+              @click="switchTab('knowledge')"
+              @keydown.left.prevent="switchTab('knowledge')"
+              @keydown.right.prevent="switchTab('week')"
+              class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 sm:px-4"
+              :class="state.activeTab === 'knowledge'
+                ? 'bg-slate-900 text-white shadow-md shadow-slate-900/15 dark:bg-indigo-500 dark:shadow-indigo-950/40'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+              </svg>
+              知识库
+              <span
+                class="rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+                :class="state.activeTab === 'knowledge' ? 'bg-white/15 text-white/75' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'"
+              >{{ totalChapters }}</span>
+            </button>
+
+            <button
+              id="tab-week"
+              type="button"
+              role="tab"
+              aria-controls="panel-week"
+              :aria-selected="state.activeTab === 'week'"
+              :tabindex="state.activeTab === 'week' ? 0 : -1"
+              @click="switchTab('week')"
+              @keydown.left.prevent="switchTab('knowledge')"
+              @keydown.right.prevent="switchTab('week')"
+              class="inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 sm:px-4"
+              :class="state.activeTab === 'week'
+                ? 'bg-slate-900 text-white shadow-md shadow-slate-900/15 dark:bg-indigo-500 dark:shadow-indigo-950/40'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100'"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+              </svg>
+              周计划
+              <span
+                class="rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums"
+                :class="state.activeTab === 'week' ? 'bg-white/15 text-white/75' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'"
+              >{{ weekPendingCount }}</span>
+            </button>
+          </div>
+
+          <div class="hidden items-center gap-2 text-[11px] font-medium text-slate-400 dark:text-slate-500 md:flex">
+            <span class="h-1.5 w-1.5 rounded-full bg-indigo-400"></span>
+            {{ state.activeTab === 'week' ? weekRange : '共享章节状态 · 实时联动' }}
+          </div>
+        </div>
+
+        <div v-if="storageFailed" class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300" role="alert">
+          当前浏览器无法使用 localStorage，本次学习进度与周计划只能保留在当前页面中。
+        </div>
+
+        <!-- 知识库页头 -->
+        <div v-if="state.activeTab === 'knowledge'" class="mt-9 grid gap-6 sm:mt-11 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-end">
+          <div class="max-w-2xl">
+            <div class="inline-flex items-center gap-2 rounded-full border border-indigo-100 dark:border-indigo-900 bg-indigo-50/80 dark:bg-indigo-950/40 px-3 py-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">
+              <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
+              知识库进度追踪
+            </div>
+            <h1 class="mt-4 text-[2rem] font-extrabold leading-[1.15] tracking-tight text-slate-950 dark:text-white sm:text-[2.65rem]">
+              每一次勾选，<span class="gradient-text">都算数。</span>
+            </h1>
+            <p class="mt-3 max-w-xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+              把每一章拆成“理论学习”和“例题练习”两个小目标。完成一个就亮起底色，两个都完成，这一章才算真正拿下。
+            </p>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2">
+            <div class="rounded-2xl border border-slate-200/80 dark:border-slate-700/70 bg-white/80 dark:bg-slate-900/80 p-3.5 backdrop-blur">
+              <p class="text-[11px] font-medium text-slate-400 dark:text-slate-500">总章节</p>
+              <p class="mt-1 text-2xl font-extrabold tabular-nums tracking-tight">
+                {{ totalChapters }}<span class="ml-0.5 text-[11px] font-medium text-slate-400 dark:text-slate-500">章</span>
+              </p>
+            </div>
+            <div class="rounded-2xl border border-slate-200/80 dark:border-slate-700/70 bg-white/80 dark:bg-slate-900/80 p-3.5 backdrop-blur">
+              <p class="text-[11px] font-medium text-slate-400 dark:text-slate-500">已完成</p>
+              <p class="mt-1 text-2xl font-extrabold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
+                {{ completedChapters }}<span class="ml-0.5 text-[11px] font-medium text-emerald-500 dark:text-emerald-400">章</span>
+              </p>
+            </div>
+            <div class="rounded-2xl border border-slate-900 dark:border-slate-700 bg-slate-900 dark:bg-slate-800 p-3.5 text-white shadow-lg shadow-slate-900/15">
+              <p class="text-[11px] font-medium text-white/50">总进度</p>
+              <p class="mt-1 text-2xl font-extrabold tabular-nums tracking-tight">
+                <animated-percent :value="overallPercent"></animated-percent>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 周计划页头 -->
+        <div v-else class="mt-8 grid gap-6 sm:mt-10 lg:grid-cols-[minmax(0,1fr)_390px] lg:items-end">
+          <div class="max-w-2xl">
+            <div class="inline-flex items-center gap-2 rounded-full border border-emerald-100 dark:border-emerald-900 bg-emerald-50/80 dark:bg-emerald-950/40 px-3 py-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+              <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+              周计划 · {{ weekRange }}
+            </div>
+            <h1 class="mt-4 text-[2rem] font-extrabold leading-[1.15] tracking-tight text-slate-950 dark:text-white sm:text-[2.65rem]">
+              把这一周，<span class="gradient-text">排明白。</span>
+            </h1>
+            <p class="mt-3 max-w-2xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+              拖拽卡片调整日期，把“理论学习”或“例题练习”安排到每一天。完成一项，知识库中的对应勾选会自动同步。
+            </p>
+
+            <div class="mt-4 flex flex-wrap items-center gap-2">
+              <span class="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 dark:border-slate-700/70 bg-white/70 dark:bg-slate-900/70 px-2.5 py-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
+                今天 {{ weekDays[todayIndex].name }} · {{ todayPendingCount }} 项待办
+              </span>
+              <span
+                v-if="weekDelayedCount > 0"
+                class="inline-flex items-center gap-1.5 rounded-full border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+              >
+                <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                {{ weekDelayedCount }} 项延期
+              </span>
+              <span class="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-300">
+                <span class="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                知识库双向同步
+              </span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2">
+            <div class="rounded-2xl border border-slate-200/80 dark:border-slate-700/70 bg-white/80 dark:bg-slate-900/80 p-3.5 backdrop-blur">
+              <p class="text-[11px] font-medium text-slate-400 dark:text-slate-500">本周任务</p>
+              <p class="mt-1 text-2xl font-extrabold tabular-nums tracking-tight">
+                {{ weekTaskCount }}<span class="ml-0.5 text-[11px] font-medium text-slate-400 dark:text-slate-500">项</span>
+              </p>
+            </div>
+            <div class="rounded-2xl border border-slate-200/80 dark:border-slate-700/70 bg-white/80 dark:bg-slate-900/80 p-3.5 backdrop-blur">
+              <p class="text-[11px] font-medium text-slate-400 dark:text-slate-500">已完成</p>
+              <p class="mt-1 text-2xl font-extrabold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
+                {{ weekCompletedCount }}<span class="ml-0.5 text-[11px] font-medium text-emerald-500 dark:text-emerald-400">项</span>
+              </p>
+            </div>
+            <div class="rounded-2xl border border-slate-900 dark:border-slate-700 bg-slate-900 dark:bg-slate-800 p-3.5 text-white shadow-lg shadow-slate-900/15">
+              <p class="text-[11px] font-medium text-white/50">完成率</p>
+              <p class="mt-1 text-2xl font-extrabold tabular-nums tracking-tight">
+                {{ weekCompletionPercent }}<span class="ml-0.5 text-[11px] font-medium text-white/50">%</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <!-- ================= 知识库视图 ================= -->
+      <main
+        v-if="state.activeTab === 'knowledge'"
+        id="panel-knowledge"
+        role="tabpanel"
+        aria-labelledby="tab-knowledge"
+        class="mt-7 space-y-5 sm:mt-8"
+      >
+        <!-- 全局进度 -->
+        <div class="soft-shadow rounded-3xl border border-slate-200/80 bg-white/85 p-4 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/85 sm:p-5">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-6">
+            <div class="flex shrink-0 items-center gap-3">
+              <div class="grid h-10 w-10 place-items-center rounded-2xl border border-emerald-100 bg-emerald-50 text-lg dark:border-emerald-900 dark:bg-emerald-950/40">📈</div>
+              <div>
+                <p class="text-[11px] font-semibold text-slate-400 dark:text-slate-500">总进度</p>
+                <p class="mt-0.5 text-2xl font-extrabold tracking-tight text-emerald-600 dark:text-emerald-400">
+                  <animated-percent :value="overallPercent"></animated-percent>
+                </p>
+              </div>
+              <span v-if="overallPercent === 100 && totalChapters > 0" class="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[10px] font-bold text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                👑 全部完成
+              </span>
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-3 text-[10px] font-semibold">
+                <span class="text-slate-400 dark:text-slate-500">已完成 {{ completedChapters }} / {{ totalChapters }} 章</span>
+                <span class="text-emerald-600 dark:text-emerald-400">{{ remainingChapters }} 章待完成</span>
+              </div>
+              <div
+                class="mt-2 h-2.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+                role="progressbar"
+                aria-label="知识库总进度"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                :aria-valuenow="overallPercent"
+              >
+                <div
+                  class="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                  :style="{ width: overallPercent + '%' }"
+                ></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <section class="grid gap-4 lg:grid-cols-[1.35fr_0.9fr]" aria-label="目录导入与筛选">
+          <div class="soft-shadow relative overflow-hidden rounded-3xl border border-slate-200/80 dark:border-slate-700/70 bg-white/85 dark:bg-slate-900/85 p-5 backdrop-blur sm:p-6">
+            <div class="pointer-events-none absolute -right-10 -top-12 h-32 w-32 rounded-full bg-indigo-100/60 dark:bg-indigo-900/40 blur-2xl"></div>
+
+            <div class="relative flex items-start justify-between gap-4">
+              <div class="flex min-w-0 items-start gap-3">
+                <div class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                  <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l4.414 4.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2Z" />
+                  </svg>
+                </div>
+                <div class="min-w-0">
+                  <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100">批量导入目录</h2>
+                  <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">粘贴纯文本目录，自动识别科目与章节</p>
+                </div>
+              </div>
+              <span class="hidden shrink-0 rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-1 text-[10px] font-medium text-slate-400 dark:text-slate-500 sm:block">
+                Ctrl + Enter
+              </span>
+            </div>
+
+            <textarea
+              v-model="state.importText"
+              @input="clearImportMessage"
+              @keydown.ctrl.enter.prevent="handleImport"
+              @keydown.meta.enter.prevent="handleImport"
+              rows="4"
+              spellcheck="false"
+              aria-label="粘贴目录文本"
+              class="relative mt-4 block w-full resize-y rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm leading-6 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:border-indigo-700 dark:focus:bg-slate-900"
+              placeholder="模拟电子技术&#10;  第1章 半导体基础知识&#10;  第2章 基本放大电路&#10;【电路分析】"
+            ></textarea>
+
+            <div class="relative mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p class="text-[11px] leading-5 text-slate-400 dark:text-slate-500">
+                科目写在最前一行（也可用【】或冒号）；章节缩进 2 格或用 - 标记。重复章节会自动跳过。
+              </p>
+              <button
+                type="button"
+                @click="handleImport"
+                :disabled="!state.importText.trim()"
+                class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+              >
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v12m0 0 4-4m-4 4-4-4M5 20h14" />
+                </svg>
+                导入目录
+              </button>
+            </div>
+
+            <p
+              v-if="importMessage"
+              class="relative mt-3 rounded-xl border px-3 py-2.5 text-[11px] font-medium leading-5"
+              :class="importMessage.type === 'success'
+                ? 'border-emerald-100 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300'
+                : 'border-rose-100 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300'"
+              role="status"
+            >
+              {{ importMessage.text }}
+            </p>
+          </div>
+
+          <div class="soft-shadow relative overflow-hidden rounded-3xl border border-slate-200/80 dark:border-slate-700/70 bg-white/85 dark:bg-slate-900/85 p-5 backdrop-blur sm:p-6">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <h2 class="text-sm font-bold text-slate-900 dark:text-slate-100">仅显示未完成</h2>
+                <p class="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">隐藏两个任务都已勾选的章节</p>
+              </div>
+
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="state.onlyUnfinished"
+                aria-label="仅显示未完成章节"
+                @click="state.onlyUnfinished = !state.onlyUnfinished"
+                class="relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+                :class="state.onlyUnfinished ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'"
+              >
+                <span
+                  class="inline-block h-5 w-5 rounded-full bg-white dark:bg-slate-800 shadow-sm transition-transform duration-200"
+                  :class="state.onlyUnfinished ? 'translate-x-5' : 'translate-x-0'"
+                ></span>
+              </button>
+            </div>
+
+            <div class="mt-5 rounded-2xl bg-slate-900 dark:bg-slate-800 p-4 text-white">
+              <div class="flex items-end justify-between gap-4">
+                <div>
+                  <p class="text-[10px] font-medium uppercase tracking-wider text-white/45">待完成</p>
+                  <p class="mt-1 text-2xl font-extrabold tabular-nums tracking-tight">
+                    {{ remainingChapters }}<span class="ml-1 text-[11px] font-medium text-white/45">章</span>
+                  </p>
+                </div>
+                <p class="pb-1 text-xs font-semibold text-white/60"><animated-percent :value="overallPercent"></animated-percent></p>
+              </div>
+              <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                <div
+                  class="h-full rounded-full bg-emerald-400 transition-all duration-500"
+                  :style="{ width: overallPercent + '%' }"
+                ></div>
+              </div>
+              <p class="mt-2.5 text-[10px] text-white/45">{{ completedChapters }} / {{ totalChapters }} 个章节已完成</p>
+            </div>
+
+            <div class="mt-4 flex items-center gap-4 text-[10px] font-medium text-slate-400 dark:text-slate-500">
+              <span class="inline-flex items-center gap-1.5">
+                <span class="h-2 w-2 rounded-full border border-amber-300 dark:border-amber-700 bg-amber-100 dark:bg-amber-900/50"></span>
+                进行中
+              </span>
+              <span class="inline-flex items-center gap-1.5">
+                <span class="h-2 w-2 rounded-full border border-emerald-300 bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/50"></span>
+                已完成
+              </span>
+            </div>
+          </div>
+        </section>
+
+        <section id="catalog" aria-labelledby="catalog-title" class="pt-2">
+          <div class="mb-3 flex flex-wrap items-end justify-between gap-2 px-1">
+            <div>
+              <h2 id="catalog-title" class="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">科目目录</h2>
+              <p class="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
+                {{ state.subjects.length }} 个科目 · 当前显示 {{ visibleChapterCount }} 个章节
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span
+                v-if="state.onlyUnfinished"
+                class="inline-flex items-center gap-1.5 rounded-full border border-indigo-100 dark:border-indigo-900 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 text-[10px] font-semibold text-indigo-600 dark:text-indigo-400"
+              >
+                <span class="h-1.5 w-1.5 rounded-full bg-indigo-500"></span>
+                筛选中 · 仅未完成
+              </span>
+
+              <div class="inline-flex items-center gap-0.5 rounded-xl border border-slate-200 bg-white/80 p-0.5 shadow-sm backdrop-blur dark:border-slate-700 dark:bg-slate-900/80" role="group" aria-label="知识库视图">
+                <button
+                  type="button"
+                  @click="switchKnowledgeView('list')"
+                  :aria-pressed="state.knowledgeView === 'list'"
+                  class="rounded-lg px-2.5 py-1.5 text-[10px] font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  :class="state.knowledgeView === 'list'
+                    ? 'bg-slate-900 text-white shadow-sm dark:bg-indigo-500'
+                    : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200'"
+                >
+                  <span aria-hidden="true">📑</span>
+                  列表
+                </button>
+                <button
+                  type="button"
+                  @click="switchKnowledgeView('tree')"
+                  :aria-pressed="state.knowledgeView === 'tree'"
+                  class="rounded-lg px-2.5 py-1.5 text-[10px] font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  :class="state.knowledgeView === 'tree'
+                    ? 'bg-slate-900 text-white shadow-sm dark:bg-indigo-500'
+                    : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200'"
+                >
+                  <span aria-hidden="true">🌿</span>
+                  技能树
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="state.subjects.length === 0" class="soft-shadow rounded-3xl border border-dashed border-slate-300 dark:border-slate-600 bg-white/70 dark:bg-slate-900/70 px-6 py-14 text-center">
+            <div class="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-slate-100 dark:bg-slate-800 text-xl">📂</div>
+            <p class="mt-4 text-sm font-bold text-slate-700 dark:text-slate-300">知识库还是空的</p>
+            <p class="mt-1 text-xs text-slate-400 dark:text-slate-500">在上方粘贴一份目录，开始建立你的学习地图。</p>
+          </div>
+
+          <div v-else-if="visibleSubjects.length === 0" class="soft-shadow rounded-3xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-950/30 px-6 py-14 text-center">
+            <div class="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-white dark:bg-slate-800 text-xl shadow-sm">🎉</div>
+            <p class="mt-4 text-sm font-bold text-emerald-800 dark:text-emerald-200">当前筛选下，没有未完成章节</p>
+            <p class="mt-1 text-xs text-emerald-600 dark:text-emerald-400">所有章节都已完成，或者你还没有开始导入新目录。</p>
+            <button
+              type="button"
+              @click="state.onlyUnfinished = false"
+              class="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300 transition hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+            >
+              查看全部章节
+            </button>
+          </div>
+
+          <div v-else-if="state.knowledgeView === 'list'" class="space-y-3">
+            <article
+              v-for="group in visibleSubjects"
+              :key="group.subject.id"
+              class="soft-shadow overflow-hidden rounded-3xl border border-slate-200/80 dark:border-slate-700/70 bg-white/85 dark:bg-slate-900/85 backdrop-blur"
+            >
+              <button
+                type="button"
+                @click="toggleSubject(group.subject)"
+                :aria-expanded="group.subject.expanded"
+                :aria-controls="panelId(group.subject)"
+                class="group flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-slate-50/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 dark:hover:bg-slate-800/60 sm:px-5"
+              >
+                <span class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50 dark:bg-indigo-950/40 text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                  {{ group.subject.name.slice(0, 1) }}
+                </span>
+
+                <span class="min-w-0 flex-1">
+                  <span class="flex items-center gap-2">
+                    <span class="truncate text-[15px] font-bold text-slate-900 dark:text-slate-100">{{ group.subject.name }}</span>
+                    <span
+                      v-if="subjectPercent(group.subject) === 100"
+                      class="shrink-0 text-sm"
+                      title="该科目已全部完成"
+                      aria-label="该科目已全部完成"
+                    >👑</span>
+                    <span class="shrink-0 rounded-full border border-emerald-100 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-400">
+                      <animated-percent :value="subjectPercent(group.subject)"></animated-percent>
+                    </span>
+                  </span>
+
+                  <span class="mt-2 flex items-center gap-2.5">
+                    <span
+                      class="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700"
+                      role="progressbar"
+                      :aria-label="group.subject.name + '科目进度'"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      :aria-valuenow="subjectPercent(group.subject)"
+                    >
+                      <span
+                        class="block h-full rounded-full bg-emerald-500 transition-all duration-500"
+                        :style="{ width: subjectPercent(group.subject) + '%' }"
+                      ></span>
+                    </span>
+                    <span class="shrink-0 text-[10px] font-semibold tabular-nums text-slate-400 dark:text-slate-500">
+                      {{ subjectCompleted(group.subject) }}/{{ group.subject.chapters.length }}
+                    </span>
+                  </span>
+                </span>
+
+                <span class="hidden shrink-0 items-center gap-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-2.5 py-1 text-[10px] font-medium text-slate-400 dark:text-slate-500 md:inline-flex">
+                  {{ group.subject.chapters.length }} 章
+                </span>
+
+                <span
+                  class="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-400 dark:text-slate-500 transition-transform duration-300 group-hover:border-slate-300 group-hover:text-slate-600"
+                  :class="{ 'rotate-180': group.subject.expanded }"
+                  aria-hidden="true"
+                >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                  </svg>
+                </span>
+              </button>
+
+              <div
+                :id="panelId(group.subject)"
+                class="accordion-body"
+                :class="{ 'is-open': group.subject.expanded }"
+              >
+                <div class="accordion-inner" :inert="!group.subject.expanded" :aria-hidden="!group.subject.expanded">
+                  <div class="border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/60 p-2.5 sm:p-4">
+                    <div class="space-y-2">
+                      <div
+                        v-for="chapter in group.chapters"
+                        :key="chapter.id"
+                        class="chapter-row rounded-2xl px-3.5 py-3 sm:px-4"
+                        :class="isChapterComplete(chapter)
+                          ? 'row-done'
+                          : (chapter.theory || chapter.practice ? 'row-partial' : 'row-todo')"
+                      >
+                        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div class="flex min-w-0 items-center gap-3">
+                            <span
+                              v-if="isChapterComplete(chapter)"
+                              class="complete-pop grid h-8 w-8 shrink-0 place-items-center rounded-full border border-emerald-200 bg-white text-sm shadow-sm dark:border-emerald-800 dark:bg-slate-800"
+                              aria-label="章节已完成"
+                            >✅</span>
+                            <span
+                              v-else
+                              class="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-slate-200 bg-white text-[10px] font-bold tabular-nums text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500"
+                              aria-hidden="true"
+                            >{{ chapterNo(group.subject, chapter) }}</span>
+
+                            <div class="min-w-0">
+                              <p class="truncate text-[13px] font-semibold text-slate-800 dark:text-slate-200 sm:text-sm">{{ chapter.name }}</p>
+                              <p v-if="isChapterComplete(chapter)" class="mt-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                                理论学习与例题练习均已完成
+                              </p>
+                              <p v-else-if="chapter.theory || chapter.practice" class="mt-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                                进行中 · {{ chapter.theory ? '理论学习已勾选' : '例题练习已勾选' }}
+                              </p>
+                              <p v-else class="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">待开始</p>
+                            </div>
+                          </div>
+
+                          <div class="flex shrink-0 items-center gap-2 pl-11 sm:pl-0">
+                            <label
+                              class="inline-flex flex-1 cursor-pointer select-none items-center justify-center gap-2 rounded-xl border px-2.5 py-2 text-[11px] font-semibold transition focus-within:ring-2 focus-within:ring-indigo-500/30 sm:flex-none"
+                              :class="chapter.theory
+                                ? 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300'
+                                : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500'"
+                            >
+                              <input
+                                type="checkbox"
+                                class="h-4 w-4 cursor-pointer rounded border-slate-300 accent-indigo-600 dark:border-slate-600"
+                                :checked="chapter.theory"
+                                @change="toggleChapter(chapter, 'theory', $event)"
+                              />
+                              <span>理论学习</span>
+                            </label>
+
+                            <label
+                              class="inline-flex flex-1 cursor-pointer select-none items-center justify-center gap-2 rounded-xl border px-2.5 py-2 text-[11px] font-semibold transition focus-within:ring-2 focus-within:ring-teal-500/30 sm:flex-none"
+                              :class="chapter.practice
+                                ? 'border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-300'
+                                : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500'"
+                            >
+                              <input
+                                type="checkbox"
+                                class="h-4 w-4 cursor-pointer rounded border-slate-300 accent-teal-600 dark:border-slate-600"
+                                :checked="chapter.practice"
+                                @change="toggleChapter(chapter, 'practice', $event)"
+                              />
+                              <span>例题练习</span>
+                            </label>
+
+                            <button
+                              type="button"
+                              @click="toggleNoteEditor(chapter)"
+                              :aria-expanded="isNoteEditorOpen(chapter)"
+                              :aria-controls="notePanelId(chapter)"
+                              :title="isNoteEditorOpen(chapter) ? '收起备注' : '编辑章节备注'"
+                              class="inline-flex shrink-0 items-center gap-1.5 rounded-xl border px-2.5 py-2 text-[11px] font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50"
+                              :class="(isNoteEditorOpen(chapter) || hasNote(chapter))
+                                ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                                : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:border-slate-500'"
+                            >
+                              <span aria-hidden="true">📝</span>
+                              <span class="hidden md:inline">{{ isNoteEditorOpen(chapter) ? '收起' : '备注' }}</span>
+                              <span v-if="hasNote(chapter) && !isNoteEditorOpen(chapter)" class="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true"></span>
+                            </button>
+                          </div>
+                        </div>
+
+                        <div v-if="isNoteEditorOpen(chapter)" :id="notePanelId(chapter)" class="mt-3 sm:ml-11">
+                          <div class="relative">
+                            <textarea
+                              :id="noteFieldId(chapter)"
+                              :value="chapter.note"
+                              @input="onNoteInput(chapter, $event)"
+                              @blur="flushNotePersistence"
+                              rows="3"
+                              spellcheck="false"
+                              class="block w-full resize-y rounded-xl border border-slate-200 bg-white/80 px-3 pb-7 pt-2.5 text-xs leading-5 text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-amber-300 focus:bg-white focus:ring-4 focus:ring-amber-500/10 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:border-amber-700 dark:focus:bg-slate-900"
+                              placeholder="记录复习重点、易错点或例题思路…"
+                            ></textarea>
+                            <span class="pointer-events-none absolute bottom-2 right-3 text-[10px] font-normal text-gray-400 dark:text-gray-500">
+                              已输入 {{ noteCount(chapter) }} 字
+                            </span>
+                          </div>
+                          <p class="mt-1.5 text-[10px] leading-4 text-slate-400 dark:text-slate-500">
+                            备注自动保存，并会显示在周计划对应卡片的 📝 图标中。
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- 横向技能树视图 -->
+          <div v-else class="space-y-3">
+            <div class="soft-shadow overflow-hidden rounded-3xl border border-slate-200/80 bg-white/85 backdrop-blur dark:border-slate-700/70 dark:bg-slate-900/85">
+              <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-4 dark:border-slate-800 sm:px-5">
+                <div class="flex items-center gap-3">
+                  <div class="grid h-8 w-8 place-items-center rounded-xl bg-emerald-50 text-xs dark:bg-emerald-950/40">🌱</div>
+                  <div>
+                    <h3 class="text-xs font-extrabold tracking-tight text-slate-900 dark:text-slate-100">无限技能树</h3>
+                    <p class="mt-0.5 text-[9px] text-slate-400 dark:text-slate-500">拖拽空白处平移 · 滚轮缩放至光标 · 点击章节编辑</p>
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap items-center gap-3">
+                  <div class="flex items-center gap-3 text-[9px] font-semibold text-slate-400 dark:text-slate-500">
+                    <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full border border-dashed border-gray-400"></span>未开始</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full border border-yellow-400 bg-yellow-50 dark:bg-yellow-950/40"></span>进行中</span>
+                    <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full border border-green-500 bg-green-50 dark:bg-green-950/40"></span>已完成</span>
+                  </div>
+                  <span class="hidden items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[9px] font-medium text-slate-400 dark:border-slate-700 dark:bg-slate-800 md:inline-flex">
+                    拖拽平移 · 滚轮缩放至光标
+                  </span>
+                </div>
+              </div>
+
+              <div ref="treeViewport" class="tree-viewport">
+                <div ref="panzoomWorld" class="tree-world tree-surface transition-opacity duration-200" :class="{ 'opacity-0': !canvasReady, 'opacity-100': canvasReady }">
+                  <div ref="treeStage" class="absolute left-[420px] top-[180px] flex w-max items-center gap-16 p-12">
+                    <svg class="tree-svg absolute inset-0 z-0 h-full w-full" aria-hidden="true">
+                    <g v-for="edge in treeConnections" :key="edge.id">
+                      <path class="tree-line" :d="edge.d" pathLength="1" />
+                      <circle class="tree-dot" :cx="edge.dotX" :cy="edge.dotY" r="3.5" />
+                    </g>
+                  </svg>
+
+                  <!-- 根节点 -->
+                  <div
+                    data-node-id="tree-root"
+                    class="relative z-10 w-48 shrink-0 rounded-3xl bg-slate-950 p-5 text-white shadow-2xl shadow-slate-950/25 dark:bg-gradient-to-br dark:from-indigo-600 dark:to-slate-950 dark:shadow-indigo-950/40"
+                  >
+                    <div class="flex items-center gap-2.5">
+                      <span class="grid h-10 w-10 place-items-center rounded-2xl bg-white/10 text-lg">🧠</span>
+                      <div>
+                        <p class="text-[8px] font-bold uppercase tracking-[0.18em] text-white/45">Root</p>
+                        <h3 class="mt-0.5 text-sm font-extrabold">我的知识树</h3>
+                      </div>
+                    </div>
+                    <p class="mt-4 text-[10px] leading-5 text-white/55">{{ state.subjects.length }} 个科目 · {{ totalChapters }} 个章节</p>
+                    <div class="mt-3 h-1.5 overflow-hidden rounded-full bg-white/10">
+                      <div class="h-full rounded-full bg-gradient-to-r from-indigo-400 to-emerald-400 transition-all duration-500" :style="{ width: overallPercent + '%' }"></div>
+                    </div>
+                    <div class="mt-2 flex items-center justify-between text-[9px] font-semibold text-white/50">
+                      <span>整体进度</span>
+                      <span class="text-white/80">{{ overallPercent }}%</span>
+                    </div>
+                    <span class="node-port absolute -right-[5px] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900" aria-hidden="true"></span>
+                  </div>
+
+                  <!-- 科目主干 -->
+                  <div class="flex flex-col gap-12">
+                    <div
+                      v-for="group in visibleSubjects"
+                      :key="'tree-' + group.subject.id"
+                      class="flex items-center gap-16"
+                    >
+                      <div
+                        :data-node-id="'tree-subject-' + group.subject.id"
+                        class="relative z-10 w-52 shrink-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-lg shadow-slate-950/[0.04] dark:border-slate-700 dark:bg-slate-900"
+                      >
+                        <span class="node-port absolute -left-[5px] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900" aria-hidden="true"></span>
+                        <span class="node-port absolute -right-[5px] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900" aria-hidden="true"></span>
+
+                        <div class="flex items-center gap-2.5">
+                          <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-indigo-50 text-xs font-bold text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">
+                            {{ group.subject.name.slice(0, 1) }}
+                          </span>
+                          <div class="min-w-0">
+                            <p class="text-[8px] font-bold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">Subject</p>
+                            <div class="flex items-center gap-1.5">
+                              <h4 class="truncate text-[13px] font-extrabold text-slate-900 dark:text-slate-100">{{ group.subject.name }}</h4>
+                              <span v-if="subjectPercent(group.subject) === 100" class="shrink-0 text-sm" title="该科目已全部完成" aria-label="该科目已全部完成">👑</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div class="mt-3 flex items-center justify-between text-[9px] font-semibold text-slate-400 dark:text-slate-500">
+                          <span>{{ subjectCompleted(group.subject) }}/{{ group.subject.chapters.length }} 章完成</span>
+                          <span class="text-emerald-600 dark:text-emerald-400"><animated-percent :value="subjectPercent(group.subject)"></animated-percent></span>
+                        </div>
+                        <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                          <div class="h-full rounded-full bg-emerald-500 transition-all duration-500" :style="{ width: subjectPercent(group.subject) + '%' }"></div>
+                        </div>
+
+                        <button
+                          type="button"
+                          @click.stop="toggleTreeSubject(group.subject)"
+                          :aria-expanded="!group.subject.treeCollapsed"
+                          class="panzoom-exclude mt-3 flex w-full items-center justify-center gap-1 rounded-lg border border-slate-200 bg-slate-50 py-1.5 text-[9px] font-semibold text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                        >
+                          <svg class="h-3 w-3 transition-transform duration-200" :class="{ 'rotate-180': group.subject.treeCollapsed }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                          </svg>
+                          {{ group.subject.treeCollapsed ? '展开章节' : '折叠章节' }}
+                        </button>
+                      </div>
+
+                      <!-- 章节节点 -->
+                      <div v-if="!group.subject.treeCollapsed" class="flex flex-col gap-3">
+                        <button
+                          v-for="(chapter, index) in group.chapters"
+                          :key="'tree-chapter-' + chapter.id"
+                          type="button"
+                          :data-node-id="'tree-chapter-' + chapter.id"
+                          @click="openTreeDrawer(group.subject, chapter)"
+                          class="panzoom-exclude group relative z-10 flex min-h-[92px] w-64 flex-col justify-between rounded-2xl border-2 p-3.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-slate-950/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950"
+                          :class="[
+                            treeNodeClass(chapter),
+                            treeDrawerOpen && selectedTreeChapter && selectedTreeChapter.id === chapter.id
+                              ? 'ring-2 ring-indigo-500/70 ring-offset-2 ring-offset-white dark:ring-offset-slate-950'
+                              : ''
+                          ]"
+                          :aria-label="'打开章节：' + chapter.name"
+                        >
+                          <span class="node-port absolute -left-[5px] top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900" aria-hidden="true"></span>
+
+                          <div class="flex items-center justify-between gap-2">
+                            <span class="text-[8px] font-bold uppercase tracking-[0.14em] opacity-55">CH.{{ chapterNo(group.subject, chapter) }}</span>
+                            <div class="flex items-center gap-1.5">
+                              <span v-if="hasNote(chapter)" class="text-[10px]" title="有备注" aria-label="有备注">📝</span>
+                              <span class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[8px] font-bold" :class="treeNodeStatusClass(chapter)">
+                                <span class="h-1 w-1 rounded-full bg-current"></span>
+                                {{ treeNodeStatus(chapter) }}
+                              </span>
+                            </div>
+                          </div>
+
+                          <h4 class="mt-1.5 line-clamp-2 text-[12px] leading-4" :class="isChapterComplete(chapter) ? 'font-bold' : 'font-medium'">{{ chapter.name }}</h4>
+
+                          <div class="mt-2 flex items-center gap-2 text-[9px] font-semibold opacity-65">
+                            <span>理论 {{ chapter.theory ? '✓' : '—' }}</span>
+                            <span class="opacity-40">/</span>
+                            <span>例题 {{ chapter.practice ? '✓' : '—' }}</span>
+                            <span class="ml-auto text-[8px] font-medium opacity-50 transition group-hover:opacity-100">打开 →</span>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            </div>
+
+            <p class="px-1 text-[10px] text-slate-400 dark:text-slate-500">
+              直角折线始终基于 Panzoom 画布内的相对坐标计算 · 折叠、展开与缩放后自动重绘
+            </p>
+          </div>
+
+          <p class="pt-5 text-center text-[10px] text-slate-400 dark:text-slate-500">
+            学习进度自动保存在当前浏览器中，数据不会上传到服务器。
+          </p>
+        </section>
+      </main>
+
+      <!-- ================= 周计划视图 ================= -->
+      <main
+        v-else
+        id="panel-week"
+        role="tabpanel"
+        aria-labelledby="tab-week"
+        class="mt-6 space-y-4 sm:mt-7"
+      >
+        <section aria-labelledby="board-title">
+          <div class="mb-3 flex flex-wrap items-end justify-between gap-2 px-1">
+            <div>
+              <h2 id="board-title" class="text-lg font-bold tracking-tight text-slate-900 dark:text-slate-100">本周看板</h2>
+              <p class="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">拖拽任务卡片调整日期 · 完成后自动同步知识库</p>
+            </div>
+            <span class="text-[10px] font-medium text-slate-400 dark:text-slate-500 lg:hidden">← 左右滑动查看看板 →</span>
+          </div>
+
+          <!-- 已完成投放区 -->
+          <div
+            class="completed-drop mb-3 rounded-3xl border border-dashed border-emerald-200 dark:border-emerald-800 bg-emerald-50/55 dark:bg-emerald-950/30 p-3.5 sm:p-4"
+            :class="{ 'is-drag-over': dragOverComplete }"
+            role="region"
+            aria-label="已完成任务区"
+            @dragenter.prevent="dragOverComplete = true"
+            @dragover.prevent="dragOverComplete = true"
+            @dragleave="onDragLeaveCompleted"
+            @drop.prevent="dropOnCompleted"
+          >
+            <div class="flex flex-wrap items-center justify-between gap-2 px-0.5">
+              <div class="flex items-center gap-2">
+                <span class="grid h-7 w-7 place-items-center rounded-full border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-800 text-xs text-emerald-600 dark:text-emerald-400">✓</span>
+                <h3 class="text-xs font-bold text-emerald-800 dark:text-emerald-200">已完成</h3>
+                <span class="rounded-full bg-white dark:bg-slate-800 px-2 py-0.5 text-[10px] font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{{ completedTasks.length }}</span>
+              </div>
+              <p class="text-[10px] font-medium text-emerald-600/75 dark:text-emerald-300/80">把卡片拖到这里，或点击卡片上的完成按钮</p>
+            </div>
+
+            <div v-if="completedTasks.length" class="nice-scroll mt-3 flex gap-2 overflow-x-auto pb-1">
+              <div
+                v-for="task in completedTasks"
+                :key="'done-' + task.id"
+                class="completed-task-card relative min-w-[205px] max-w-[260px] shrink-0 rounded-2xl border border-emerald-200/80 bg-white/85 p-3 dark:border-emerald-900/60 dark:bg-slate-900/85"
+              >
+                <div class="flex items-center justify-between gap-1.5">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">✓ 已完成</span>
+                    <span class="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">{{ typeLabel(task.type) }}</span>
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <span v-if="task.delayed" class="rounded-md bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">延期</span>
+                    <button
+                      v-if="taskHasNote(task)"
+                      type="button"
+                      draggable="false"
+                      @mousedown.stop
+                      @click.stop
+                      @mouseenter="showNoteTooltip(task, $event)"
+                      @mouseleave="hideNoteTooltip"
+                      @focus="showNoteTooltip(task, $event)"
+                      @blur="hideNoteTooltip"
+                      class="grid h-5 w-5 place-items-center rounded-md border border-amber-200 bg-amber-50 text-[10px] leading-none text-amber-600 transition hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-900/60"
+                      :aria-label="'查看 ' + task.chapterName + ' 的章节备注'"
+                    >📝</button>
+                  </div>
+                </div>
+                <p class="mt-2 truncate text-[11px] font-bold text-slate-700 dark:text-slate-300">{{ task.chapterName }}</p>
+                <div class="mt-1.5 flex items-center justify-between gap-2">
+                  <p class="truncate text-[9px] text-slate-400 dark:text-slate-500">{{ task.subjectName }}</p>
+                  <span class="shrink-0 text-[9px] font-semibold text-slate-400 dark:text-slate-500">{{ dayName(task.day) }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div v-else class="mt-3 rounded-2xl border border-dashed border-emerald-200/80 bg-white/45 px-4 py-5 text-center text-[11px] font-medium text-emerald-600/75 dark:border-emerald-900/60 dark:bg-slate-900/50 dark:text-emerald-300/80">
+              还没有已完成任务，拖一张卡片进来试试
+            </div>
+          </div>
+
+          <!-- 7 列看板 -->
+          <div class="nice-scroll overflow-x-auto overscroll-x-contain pb-2">
+            <div class="grid min-w-[1190px] grid-cols-7 gap-3">
+              <section
+                v-for="day in boardDays"
+                :key="'day-' + day.index"
+                class="kanban-column flex min-h-[430px] flex-col rounded-2xl"
+                :class="{ 'is-today': day.isToday, 'is-drag-over': dragOverDay === day.index }"
+                :aria-label="day.name + '任务列'"
+                @dragenter.prevent="dragOverDay = day.index"
+                @dragover.prevent="dragOverDay = day.index"
+                @dragleave="onDragLeaveDay(day.index, $event)"
+                @drop.prevent="dropOnDay(day.index, $event)"
+              >
+                <div class="flex items-start justify-between gap-2 border-b border-slate-200/70 dark:border-slate-700/60 px-3 py-3">
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-[11px] font-extrabold" :class="day.isToday ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-600 dark:text-slate-400'">{{ day.name }}</span>
+                      <span v-if="day.isToday" class="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[8px] font-bold text-white">今天</span>
+                    </div>
+                    <p class="mt-0.5 text-[9px] font-medium text-slate-400 dark:text-slate-500">{{ day.monthDay }}</p>
+                  </div>
+                  <span class="grid h-5 min-w-[20px] place-items-center rounded-full bg-white dark:bg-slate-800 px-1 text-[9px] font-bold tabular-nums" :class="day.tasks.length ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-300 dark:text-slate-600'">
+                    {{ day.tasks.length }}
+                  </span>
+                </div>
+
+                <div class="flex flex-1 flex-col gap-2 p-2.5">
+                  <article
+                    v-for="task in day.tasks"
+                    :key="task.id"
+                    draggable="true"
+                    @dragstart="onTaskDragStart(task.id, $event)"
+                    @dragend="onTaskDragEnd"
+                    class="task-card relative"
+                    :class="{ 'is-dragging': draggingTaskId === task.id }"
+                  >
+                    <div class="flex items-center justify-between gap-1.5">
+                      <span
+                        class="rounded-full px-1.5 py-0.5 text-[9px] font-bold"
+                        :class="task.type === 'theory' ? 'bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400' : 'bg-teal-50 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400'"
+                      >{{ typeLabel(task.type) }}</span>
+                      <div class="flex items-center gap-1">
+                        <span v-if="task.delayed" class="rounded-md bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">延期</span>
+                        <button
+                          v-if="taskHasNote(task)"
+                          type="button"
+                          draggable="false"
+                          @mousedown.stop
+                          @click.stop
+                          @mouseenter="showNoteTooltip(task, $event)"
+                          @mouseleave="hideNoteTooltip"
+                          @focus="showNoteTooltip(task, $event)"
+                          @blur="hideNoteTooltip"
+                          class="grid h-5 w-5 place-items-center rounded-md border border-amber-200 bg-amber-50 text-[10px] leading-none text-amber-600 transition hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-900/60"
+                          :aria-label="'查看 ' + task.chapterName + ' 的章节备注'"
+                        >📝</button>
+                      </div>
+                    </div>
+
+                    <p class="mt-2 text-[11px] font-bold leading-[1.45] text-slate-800 dark:text-slate-200">{{ task.chapterName }}</p>
+                    <p class="mt-0.5 truncate text-[9px] text-slate-400 dark:text-slate-500">{{ task.subjectName }}</p>
+
+                    <div class="mt-2.5 flex items-center justify-between gap-1.5">
+                      <span class="truncate text-[8px] font-medium" :class="task.delayed ? 'text-amber-600 dark:text-amber-400' : 'text-slate-300 dark:text-slate-600'">
+                        {{ task.delayed ? '原定 ' + dayName(task.originalDay) : '拖动换天' }}
+                      </span>
+                      <button
+                        type="button"
+                        draggable="false"
+                        @click.stop="completeTask(task.id)"
+                        class="shrink-0 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[9px] font-bold text-emerald-700 transition hover:bg-emerald-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-900/60"
+                        :aria-label="'完成 ' + task.chapterName + ' ' + typeLabel(task.type)"
+                      >完成</button>
+                    </div>
+                  </article>
+
+                  <div v-if="day.tasks.length === 0" class="grid flex-1 place-items-center rounded-xl border border-dashed border-slate-200 dark:border-slate-700 bg-white/35 dark:bg-slate-900/40 px-2 py-8 text-center">
+                    <div>
+                      <p class="text-lg text-slate-300 dark:text-slate-600">＋</p>
+                      <p class="mt-1 text-[9px] leading-4 text-slate-400 dark:text-slate-500">拖动任务到这里<br />或新建一项</p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    @click="openTaskModal(day.index)"
+                    class="mt-auto flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-slate-300 bg-white/55 px-2 py-2.5 text-[10px] font-bold text-slate-500 transition hover:border-indigo-300 hover:bg-indigo-50/60 hover:text-indigo-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900/60 dark:text-slate-400 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-300"
+                  >
+                    <span class="text-sm leading-none">＋</span>
+                    添加任务
+                  </button>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <p class="pt-4 text-center text-[10px] text-slate-400 dark:text-slate-500">
+            周计划与知识库共享同一份章节数据 · 完成“理论”或“例题”任务会自动勾选对应项目
+          </p>
+        </section>
+      </main>
+    </div>
+
+    <!-- 左侧 Mini-Map：不随画布缩放/平移 -->
+    <aside
+      v-if="state.activeTab === 'knowledge' && state.knowledgeView === 'tree'"
+      class="fixed bottom-8 left-3 top-24 z-30 hidden w-52 flex-col rounded-3xl border border-white/60 bg-white/65 p-3 shadow-2xl shadow-slate-950/10 backdrop-blur-xl dark:border-slate-700/70 dark:bg-slate-900/60 dark:shadow-black/30 lg:flex"
+      aria-label="科目迷你导航"
+    >
+      <div class="flex items-center justify-between px-1">
+        <p class="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-400 dark:text-slate-500">Mini Map</p>
+        <span class="rounded-full bg-slate-900/5 px-2 py-0.5 text-[9px] font-bold tabular-nums text-slate-400 dark:bg-white/5 dark:text-slate-500">{{ state.subjects.length }}</span>
+      </div>
+
+      <div class="mt-3 shrink-0 rounded-2xl border border-slate-200/70 bg-white/50 p-2.5 dark:border-slate-700/70 dark:bg-slate-950/30">
+        <div class="flex items-center justify-between text-[8px] font-bold text-slate-400 dark:text-slate-500">
+          <span>整体进度</span>
+          <span class="tabular-nums text-emerald-600 dark:text-emerald-400">{{ overallPercent }}%</span>
+        </div>
+        <div class="mt-1.5 h-1 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+          <div class="h-full rounded-full bg-emerald-500 transition-all duration-500" :style="{ width: overallPercent + '%' }"></div>
+        </div>
+        <p class="mt-1 text-[8px] font-medium text-slate-400 dark:text-slate-500">{{ completedChapters }}/{{ totalChapters }} 章完成</p>
+      </div>
+
+      <div class="drawer-scroll mt-2 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-0.5">
+        <button
+          v-for="subject in state.subjects"
+          :key="'minimap-' + subject.id"
+          type="button"
+          @click="focusSubjectFromMap(subject)"
+          :aria-pressed="focusedSubjectId === subject.id"
+          class="group w-full rounded-xl border px-2.5 py-2 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          :class="focusedSubjectId === subject.id
+            ? 'border-indigo-200 bg-indigo-50/85 dark:border-indigo-800 dark:bg-indigo-950/40'
+            : 'border-transparent bg-white/35 hover:border-slate-200 hover:bg-white/75 dark:bg-slate-900/30 dark:hover:border-slate-700 dark:hover:bg-slate-800/70'"
+        >
+          <div class="flex items-center gap-1.5">
+            <span class="min-w-0 flex-1 truncate text-[11px] font-bold text-slate-700 dark:text-slate-200">{{ subject.name }}</span>
+            <span v-if="subjectPercent(subject) === 100" class="shrink-0 text-[11px]">👑</span>
+            <span class="shrink-0 text-[9px] font-bold tabular-nums text-emerald-600 dark:text-emerald-400">{{ subjectPercent(subject) }}%</span>
+          </div>
+          <div class="mt-1.5 flex items-center gap-2">
+            <div class="h-1 flex-1 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+              <div class="h-full rounded-full bg-emerald-500 transition-all duration-500" :style="{ width: subjectPercent(subject) + '%' }"></div>
+            </div>
+            <span class="shrink-0 text-[8px] font-semibold tabular-nums text-slate-400 dark:text-slate-500">{{ subjectCompleted(subject) }}/{{ subject.chapters.length }}</span>
+          </div>
+          <p v-if="subject.treeCollapsed" class="mt-1 text-[8px] font-medium text-slate-400 dark:text-slate-500">已折叠</p>
+        </button>
+      </div>
+
+      <div class="mt-3 shrink-0 border-t border-slate-200/70 pt-2.5 dark:border-slate-700/70">
+        <p class="px-1 text-[8px] font-bold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">Canvas Guide</p>
+        <div class="mt-1.5 space-y-1 px-1 text-[8px] leading-4 text-slate-400 dark:text-slate-500">
+          <p>🖱️ 拖拽空白区域平移</p>
+          <p>🌀 滚轮缩放至光标 30%–200%</p>
+          <p>⌖ 点击科目定位节点</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 画布缩放控制 -->
+    <div
+      v-if="state.activeTab === 'knowledge' && state.knowledgeView === 'tree'"
+      class="fixed bottom-24 right-4 z-40 flex flex-col items-center gap-1 rounded-2xl border border-white/70 bg-white/80 p-1.5 shadow-2xl shadow-slate-950/15 backdrop-blur-xl dark:border-slate-700/70 dark:bg-slate-900/80 dark:shadow-black/40 sm:bottom-28 sm:right-7"
+      aria-label="画布缩放控制"
+    >
+      <span class="px-1 pt-0.5 text-[8px] font-bold tabular-nums text-slate-400 dark:text-slate-500">{{ zoomLevel }}%</span>
+      <button
+        type="button"
+        @click="zoomCanvas(1.2)"
+        class="grid h-8 w-8 place-items-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+        aria-label="放大画布"
+        title="放大"
+      >
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M12 5v14M5 12h14" /></svg>
+      </button>
+      <button
+        type="button"
+        @click="zoomCanvas(0.8333333)"
+        class="grid h-8 w-8 place-items-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+        aria-label="缩小画布"
+        title="缩小"
+      >
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" d="M5 12h14" /></svg>
+      </button>
+      <button
+        type="button"
+        @click="resetCanvasView"
+        class="grid h-8 w-8 place-items-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+        aria-label="居中还原画布"
+        title="居中还原"
+      >
+        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" /><path stroke-linecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" /></svg>
+      </button>
+    </div>
+
+    <!-- 今日聚焦悬浮入口 -->
+    <button
+      v-if="!focusOpen && !taskModalOpen"
+      type="button"
+      @click="openFocus"
+      class="fixed bottom-5 right-4 z-40 inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-xs font-bold text-white shadow-2xl shadow-slate-950/30 transition hover:-translate-y-0.5 hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 dark:bg-indigo-500 dark:shadow-indigo-950/50 dark:hover:bg-indigo-400 dark:focus-visible:ring-offset-slate-950 sm:bottom-7 sm:right-7"
+      aria-label="打开今日聚焦"
+      title="今日聚焦"
+    >
+      <span class="grid h-5 w-5 place-items-center rounded-full bg-amber-300 text-[11px] text-slate-950 dark:text-white">☀</span>
+      <span class="hidden sm:inline">今日聚焦</span>
+      <span class="sm:hidden">聚焦</span>
+      <span class="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white/70">{{ todayPendingCount }}</span>
+    </button>
+
+    <!-- 新建周任务弹窗 -->
+    <transition name="modal">
+      <div
+        v-if="taskModalOpen"
+        class="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/45 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="task-modal-title"
+        @click.self="closeTaskModal"
+      >
+        <div class="modal-panel max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 sm:rounded-3xl">
+          <div class="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 sm:px-6">
+            <div class="flex items-center gap-3">
+              <div class="grid h-9 w-9 place-items-center rounded-xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14" />
+                </svg>
+              </div>
+              <div>
+                <h3 id="task-modal-title" class="text-sm font-bold text-slate-900 dark:text-slate-100">添加计划任务</h3>
+                <p class="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">科目 → 章节 → 类型</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              @click="closeTaskModal"
+              class="grid h-8 w-8 place-items-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+              aria-label="关闭弹窗"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="px-5 py-4 sm:px-6 sm:py-5">
+            <div class="flex items-center justify-between gap-3 rounded-2xl border border-indigo-100 dark:border-indigo-900 bg-indigo-50/70 dark:bg-indigo-950/40 px-3.5 py-3">
+              <div>
+                <p class="text-[10px] font-medium text-indigo-400 dark:text-indigo-300">添加到</p>
+                <p class="mt-0.5 text-sm font-bold text-indigo-800 dark:text-indigo-200">{{ weekDays[taskModalDay].name }} · {{ weekDays[taskModalDay].monthDay }}</p>
+              </div>
+              <span class="rounded-full bg-white dark:bg-slate-800 px-2.5 py-1 text-[9px] font-semibold text-indigo-500 dark:text-indigo-400">之后可拖拽调整</span>
+            </div>
+
+            <div class="mt-4">
+              <label for="task-subject" class="text-[11px] font-bold text-slate-600 dark:text-slate-400">科目</label>
+              <div class="relative mt-1.5">
+                <select
+                  id="task-subject"
+                  ref="subjectSelect"
+                  v-model="taskForm.subjectId"
+                  @change="onTaskSubjectChange"
+                  class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 pr-9 text-sm font-medium text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:focus:border-indigo-600 dark:focus:bg-slate-900"
+                >
+                  <option v-if="!state.subjects.length" value="">暂无科目</option>
+                  <option v-for="subject in state.subjects" :key="subject.id" :value="subject.id">{{ subject.name }}</option>
+                </select>
+                <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <label for="task-chapter" class="text-[11px] font-bold text-slate-600 dark:text-slate-400">章节</label>
+              <div class="relative mt-1.5">
+                <select
+                  id="task-chapter"
+                  v-model="taskForm.chapterId"
+                  :disabled="!selectedSubject"
+                  class="w-full appearance-none rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 pr-9 text-sm font-medium text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:focus:border-indigo-600 dark:focus:bg-slate-900"
+                >
+                  <option v-if="!selectedSubject" value="">请先选择科目</option>
+                  <option v-for="chapter in availableChapters" :key="chapter.id" :value="chapter.id">{{ chapter.name }}</option>
+                </select>
+                <svg class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <p class="text-[11px] font-bold text-slate-600 dark:text-slate-400">类型</p>
+              <div class="mt-1.5 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  @click="taskForm.type = 'theory'"
+                  :aria-pressed="taskForm.type === 'theory'"
+                  class="rounded-xl border px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                  :class="taskForm.type === 'theory'
+                    ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-800'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-300'"
+                >
+                  <span class="block text-xs font-bold">理论学习</span>
+                  <span class="mt-0.5 block text-[9px] opacity-65">同步“理论学习”勾选</span>
+                </button>
+                <button
+                  type="button"
+                  @click="taskForm.type = 'practice'"
+                  :aria-pressed="taskForm.type === 'practice'"
+                  class="rounded-xl border px-3 py-2.5 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500"
+                  :class="taskForm.type === 'practice'
+                    ? 'border-teal-300 dark:border-teal-700 bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 ring-1 ring-teal-200 dark:ring-teal-800'
+                    : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:border-slate-300'"
+                >
+                  <span class="block text-xs font-bold">例题练习</span>
+                  <span class="mt-0.5 block text-[9px] opacity-65">同步“例题练习”勾选</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="selectedChapter" class="mt-4 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/60 p-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400">知识库当前状态</p>
+                <div class="flex items-center gap-1.5">
+                  <span
+                    class="rounded-full px-2 py-0.5 text-[9px] font-semibold"
+                    :class="selectedChapter.theory ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300' : 'bg-white dark:bg-slate-800 text-slate-400 dark:text-slate-500'"
+                  >理论 {{ selectedChapter.theory ? '✓' : '—' }}</span>
+                  <span
+                    class="rounded-full px-2 py-0.5 text-[9px] font-semibold"
+                    :class="selectedChapter.practice ? 'bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300' : 'bg-white dark:bg-slate-800 text-slate-400 dark:text-slate-500'"
+                  >例题 {{ selectedChapter.practice ? '✓' : '—' }}</span>
+                </div>
+              </div>
+              <p v-if="selectedTypeAlreadyDone" class="mt-2 text-[10px] leading-4 text-amber-600 dark:text-amber-400">
+                该章节的“{{ typeLabel(taskForm.type) }}”已在知识库完成，新任务添加后会直接进入已完成区。
+              </p>
+            </div>
+
+            <div class="mt-5 flex items-center gap-2">
+              <button
+                type="button"
+                @click="closeTaskModal"
+                class="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-bold text-slate-500 transition hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              >取消</button>
+              <button
+                type="button"
+                @click="addTask"
+                :disabled="!selectedChapter"
+                class="flex-[1.4] rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+              >添加到{{ weekDays[taskModalDay].name }}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 今日聚焦全屏 -->
+    <transition name="focus">
+      <div
+        v-if="focusOpen"
+        class="focus-shell fixed inset-0 z-[60] overflow-y-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="focus-title"
+      >
+        <div class="mx-auto min-h-screen w-full max-w-4xl px-5 py-6 sm:px-8 sm:py-8">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-2.5">
+              <span class="grid h-9 w-9 place-items-center rounded-2xl bg-amber-300 text-base text-slate-950 dark:text-white shadow-lg shadow-amber-300/30">☀</span>
+              <div>
+                <p class="text-xs font-bold tracking-tight text-slate-800 dark:text-slate-200">今日聚焦</p>
+                <p class="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">Focus Mode</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              @click="closeFocus"
+              class="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3 py-2 text-[11px] font-bold text-slate-500 backdrop-blur transition hover:bg-white hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+            >
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+              </svg>
+              退出
+            </button>
+          </div>
+
+          <div class="mx-auto mt-12 max-w-2xl sm:mt-20">
+            <p class="text-[10px] font-bold uppercase tracking-[0.22em] text-indigo-500 dark:text-indigo-400">TODAY · {{ weekDays[todayIndex].monthDay }}</p>
+            <h1 id="focus-title" class="mt-3 text-6xl font-black tracking-tight text-slate-950 dark:text-white sm:text-7xl">
+              {{ weekDays[todayIndex].name }}<span class="text-indigo-500 dark:text-indigo-400">。</span>
+            </h1>
+            <p class="mt-4 text-sm leading-6 text-slate-500 dark:text-slate-400">
+              今天安排 {{ todayTasks.length }} 项任务，已完成 {{ todayCompletedCount }} 项。
+              <span class="text-slate-400 dark:text-slate-500">只专注今天，把下一步走稳。</span>
+            </p>
+
+            <div class="mt-6 flex items-center gap-3">
+              <div class="h-2 flex-1 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-700/70">
+                <div
+                  class="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-[width] duration-500"
+                  :style="{ width: todayCompletionPercent + '%' }"
+                ></div>
+              </div>
+              <span class="text-xs font-bold tabular-nums text-slate-400 dark:text-slate-500">{{ todayCompletionPercent }}%</span>
+            </div>
+
+            <div v-if="todayTasks.length" class="mt-8 space-y-3">
+              <article
+                v-for="task in todayTasks"
+                :key="'focus-' + task.id"
+                class="rounded-2xl border p-4 transition sm:p-5"
+                :class="task.completed
+                  ? 'border-emerald-200/80 dark:border-emerald-900/60 bg-emerald-50/70 dark:bg-emerald-950/30'
+                  : 'border-slate-200/90 bg-white/90 shadow-sm dark:border-slate-700/80 dark:bg-slate-900/90'"
+              >
+                <div class="flex items-start gap-3">
+                  <span
+                    class="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-[10px] font-bold"
+                    :class="task.type === 'theory' ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400' : 'bg-teal-50 dark:bg-teal-950/40 text-teal-600 dark:text-teal-400'"
+                  >{{ task.type === 'theory' ? '理' : '例' }}</span>
+
+                  <div class="min-w-0 flex-1">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <span
+                        class="rounded-full px-2 py-0.5 text-[9px] font-bold"
+                        :class="task.type === 'theory' ? 'bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300' : 'bg-teal-100 dark:bg-teal-900/50 text-teal-700 dark:text-teal-300'"
+                      >{{ typeLabel(task.type) }}</span>
+                      <span v-if="task.delayed" class="rounded-full bg-amber-100 dark:bg-amber-900/50 px-2 py-0.5 text-[9px] font-bold text-amber-700 dark:text-amber-300">延期</span>
+                      <span v-if="task.completed" class="rounded-full bg-emerald-100 dark:bg-emerald-900/50 px-2 py-0.5 text-[9px] font-bold text-emerald-700 dark:text-emerald-300">已完成</span>
+                    </div>
+                    <h2 class="mt-1.5 text-sm font-bold leading-5 text-slate-800 dark:text-slate-200 sm:text-base">{{ task.chapterName }}</h2>
+                    <p class="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">{{ task.subjectName }}</p>
+                  </div>
+
+                  <button
+                    v-if="!task.completed"
+                    type="button"
+                    @click="completeTask(task.id)"
+                    class="shrink-0 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-[11px] font-bold text-emerald-700 transition hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:border-emerald-800 dark:bg-slate-800 dark:text-emerald-300 dark:hover:bg-emerald-950/50"
+                  >完成</button>
+                  <span v-else class="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-800 text-sm">✅</span>
+                </div>
+              </article>
+            </div>
+
+            <div v-else class="mt-8 rounded-3xl border border-dashed border-slate-300 dark:border-slate-600 bg-white/70 dark:bg-slate-900/70 px-6 py-12 text-center">
+              <div class="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-xl">🌤</div>
+              <p class="mt-4 text-sm font-bold text-slate-700 dark:text-slate-300">今天没有安排任务</p>
+              <p class="mt-1 text-xs text-slate-400 dark:text-slate-500">留白也是一种计划，或者现在给今天加一项。</p>
+              <button
+                type="button"
+                @click="addTaskFromFocus"
+                class="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+              >＋ 添加今日任务</button>
+            </div>
+
+            <p class="mt-10 pb-8 text-center text-[10px] leading-5 text-slate-400 dark:text-slate-500">
+              点击“完成”会同步勾选知识库中的对应项目 · 保持专注，一次只做一件事
+            </p>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- 技能树抽屉遮罩 -->
+    <transition name="tree-fade">
+      <div
+        v-if="treeDrawerOpen"
+        class="fixed inset-0 z-[80] bg-slate-950/10 dark:bg-black/30"
+        @click="closeTreeDrawer"
+        aria-hidden="true"
+      ></div>
+    </transition>
+
+    <!-- 技能树章节抽屉 -->
+    <transition name="tree-drawer">
+      <aside
+        v-if="treeDrawerOpen && selectedTreeChapter"
+        class="fixed inset-y-0 right-0 z-[85] flex w-full flex-col border-l border-slate-200 bg-white shadow-2xl shadow-slate-950/20 dark:border-slate-800 dark:bg-slate-950 md:w-1/3"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="tree-drawer-title"
+      >
+        <div class="h-1 shrink-0 bg-gradient-to-r from-indigo-500 via-emerald-500 to-amber-400"></div>
+
+        <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-5 dark:border-slate-800 sm:px-7">
+          <div class="min-w-0">
+            <p class="text-[9px] font-bold uppercase tracking-[0.2em] text-indigo-500 dark:text-indigo-400">Chapter Detail</p>
+            <p class="mt-1 truncate text-[11px] font-semibold text-slate-400 dark:text-slate-500">{{ selectedTreeSubject ? selectedTreeSubject.name : '' }}</p>
+          </div>
+          <button
+            id="tree-drawer-close"
+            type="button"
+            @click="closeTreeDrawer"
+            class="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-slate-200 bg-white text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-500 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            aria-label="关闭章节抽屉"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div class="drawer-scroll flex-1 overflow-y-auto px-5 py-6 sm:px-7">
+          <div class="flex items-center gap-2">
+            <span class="rounded-full px-2.5 py-1 text-[9px] font-bold" :class="treeNodeStatusClass(selectedTreeChapter)">
+              {{ treeNodeStatus(selectedTreeChapter) }}
+            </span>
+            <span class="rounded-full bg-slate-100 px-2.5 py-1 text-[9px] font-semibold text-slate-400 dark:bg-slate-800 dark:text-slate-500">
+              {{ selectedTreeChapter.theory && selectedTreeChapter.practice ? '2/2' : (selectedTreeChapter.theory || selectedTreeChapter.practice ? '1/2' : '0/2') }} 任务
+            </span>
+          </div>
+
+          <h2 id="tree-drawer-title" class="mt-4 text-2xl font-black leading-[1.2] tracking-tight text-slate-950 dark:text-white">
+            {{ selectedTreeChapter.name }}
+          </h2>
+
+          <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+            <div class="flex items-center justify-between text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+              <span>章节完成度</span>
+              <span class="text-emerald-600 dark:text-emerald-400">{{ chapterProgressPercent(selectedTreeChapter) }}%</span>
+            </div>
+            <div class="mt-2 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+              <div class="h-full rounded-full bg-emerald-500 transition-all duration-500" :style="{ width: chapterProgressPercent(selectedTreeChapter) + '%' }"></div>
+            </div>
+          </div>
+
+          <div class="mt-7">
+            <p class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">学习任务</p>
+            <div class="mt-3 space-y-2.5">
+              <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white p-3.5 transition hover:border-indigo-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-indigo-700">
+                <input
+                  type="checkbox"
+                  :checked="selectedTreeChapter.theory"
+                  @change="toggleChapter(selectedTreeChapter, 'theory', $event)"
+                  class="h-5 w-5 shrink-0 cursor-pointer rounded border-slate-300 accent-indigo-600 dark:border-slate-600"
+                />
+                <span class="min-w-0 flex-1">
+                  <span class="block text-xs font-bold text-slate-700 dark:text-slate-200">理论学习</span>
+                  <span class="mt-0.5 block text-[10px] text-slate-400 dark:text-slate-500">阅读章节内容，理解核心概念</span>
+                </span>
+                <span class="grid h-6 w-6 place-items-center rounded-full bg-indigo-50 text-[10px] font-bold text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300">理</span>
+              </label>
+
+              <label class="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 bg-white p-3.5 transition hover:border-teal-300 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-teal-700">
+                <input
+                  type="checkbox"
+                  :checked="selectedTreeChapter.practice"
+                  @change="toggleChapter(selectedTreeChapter, 'practice', $event)"
+                  class="h-5 w-5 shrink-0 cursor-pointer rounded border-slate-300 accent-teal-600 dark:border-slate-600"
+                />
+                <span class="min-w-0 flex-1">
+                  <span class="block text-xs font-bold text-slate-700 dark:text-slate-200">例题练习</span>
+                  <span class="mt-0.5 block text-[10px] text-slate-400 dark:text-slate-500">通过例题检验掌握程度</span>
+                </span>
+                <span class="grid h-6 w-6 place-items-center rounded-full bg-teal-50 text-[10px] font-bold text-teal-600 dark:bg-teal-500/10 dark:text-teal-300">例</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="mt-7">
+            <div class="flex items-center justify-between">
+              <label for="tree-chapter-note" class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">章节备注</label>
+              <span class="text-[9px] font-medium text-slate-400 dark:text-slate-500">已输入 {{ noteCount(selectedTreeChapter) }} 字</span>
+            </div>
+            <textarea
+              id="tree-chapter-note"
+              :value="selectedTreeChapter.note"
+              @input="onNoteInput(selectedTreeChapter, $event)"
+              @blur="flushNotePersistence"
+              rows="5"
+              class="mt-3 block w-full resize-y rounded-xl border border-slate-200 bg-slate-50/70 px-3.5 py-3 text-xs leading-5 text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-500/10 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200 dark:placeholder:text-slate-500 dark:focus:border-indigo-700 dark:focus:bg-slate-900"
+              placeholder="记录复习重点、易错点或解题思路…"
+            ></textarea>
+          </div>
+
+          <div class="mt-5 flex items-start gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 text-[10px] leading-5 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300">
+            <span aria-hidden="true">✨</span>
+            <span>修改勾选状态后，左侧技能树节点会立即变色，并同步更新周计划任务状态。</span>
+          </div>
+        </div>
+
+        <div class="shrink-0 border-t border-slate-100 px-5 py-4 dark:border-slate-800 sm:px-7">
+          <div class="flex items-center justify-between gap-3">
+            <p class="text-[9px] leading-4 text-slate-400 dark:text-slate-500">按 Esc 或点击左侧空白区域关闭</p>
+            <button
+              type="button"
+              @click="closeTreeDrawer"
+              class="rounded-xl bg-slate-950 px-4 py-2.5 text-[11px] font-bold text-white shadow-lg shadow-slate-950/15 transition hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-400"
+            >完成编辑</button>
+          </div>
+        </div>
+      </aside>
+    </transition>
+
+    <!-- 章节备注 Tooltip（Teleport 到 body，避免被看板滚动容器裁剪） -->
+    <teleport to="body">
+      <transition name="tooltip">
+        <div
+          v-if="noteTooltip.visible"
+          id="note-tooltip"
+          ref="noteTooltipEl"
+          role="tooltip"
+          class="note-tooltip pointer-events-none rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-3 text-left text-slate-100 shadow-2xl shadow-slate-950/40 dark:border-slate-600 dark:bg-slate-800"
+          :style="{
+            width: noteTooltip.width + 'px',
+            left: noteTooltip.left + 'px',
+            top: noteTooltip.top + 'px'
+          }"
+        >
+          <div class="flex items-center gap-1.5 text-[10px] font-bold text-amber-300">
+            <span aria-hidden="true">📝</span>
+            章节备注
+          </div>
+          <p class="mt-1.5 whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-200">{{ noteTooltip.note }}</p>
+          <p class="mt-2 truncate border-t border-white/10 pt-1.5 text-[9px] text-slate-400">{{ noteTooltip.chapterName }}</p>
+        </div>
+      </transition>
+    </teleport>
+
+    <!-- 撤销 Toast -->
+    <transition name="toast">
+      <div
+        v-if="toast.visible"
+        class="fixed inset-x-0 bottom-5 z-[95] flex justify-center px-4 sm:bottom-7"
+        role="status"
+        aria-live="polite"
+      >
+        <div class="relative w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-slate-950 px-4 py-3.5 text-white shadow-2xl shadow-slate-950/30">
+          <div class="flex items-center gap-3">
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/10 text-base" aria-hidden="true">✓</span>
+            <p class="min-w-0 flex-1 text-xs leading-5 text-slate-200 sm:text-sm">
+              已更新【<span class="font-semibold text-white">{{ toast.chapterName }}</span>】状态
+            </p>
+            <button
+              type="button"
+              @click="undoChange"
+              class="shrink-0 rounded-lg border border-white/15 bg-white/10 px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70 sm:text-xs"
+            >撤销</button>
+          </div>
+          <div class="absolute inset-x-0 bottom-0 h-0.5 bg-white/10">
+            <div :key="toast.seq" class="toast-progress h-full bg-gradient-to-r from-indigo-400 via-sky-400 to-emerald-400"></div>
+          </div>
+        </div>
+      </div>
+    </transition>
+  </div>
+
+  <noscript>
+    <div style="max-width:640px;margin:48px auto;padding:24px;border-radius:16px;background:#fff;font-family:sans-serif;text-align:center;">
+      本页面需要启用 JavaScript 才能运行。
+    </div>
+  </noscript>
+
+  <script>
+    const { createApp, reactive, ref, computed, watch, nextTick, onMounted, onBeforeUnmount } = Vue;
+
+    const STORAGE_KEY = 'college-self-study-progress:v1';
+    const THEME_KEY = 'college-self-study-theme';
+    const TOAST_DURATION = 5000;
+    const NOTE_COUNT_DEBOUNCE = 300;
+    const NOTE_SAVE_DEBOUNCE = 400;
+    const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+
+    /* ----------------------------- 初始示例数据 ----------------------------- */
+    const SEED_SUBJECTS = [
+      {
+        id: 'subject-analog',
+        name: '模拟电子技术',
+        chapters: [
+          { id: 'analog-01', name: '第1章 半导体基础知识' },
+          { id: 'analog-02', name: '第2章 基本放大电路' },
+          { id: 'analog-03', name: '第3章 多级放大电路' },
+          { id: 'analog-04', name: '第4章 集成运算放大器' },
+          { id: 'analog-05', name: '第5章 负反馈放大电路' }
+        ]
+      },
+      {
+        id: 'subject-circuit',
+        name: '电路分析',
+        chapters: [
+          { id: 'circuit-01', name: '第1章 电路模型与电路定律' },
+          { id: 'circuit-02', name: '第2章 电阻电路的等效变换' },
+          { id: 'circuit-03', name: '第3章 电阻电路的一般分析' },
+          { id: 'circuit-04', name: '第4章 电路定理' },
+          { id: 'circuit-05', name: '第5章 一阶动态电路' }
+        ]
+      },
+      {
+        id: 'subject-digital',
+        name: '数字电子技术',
+        chapters: [
+          { id: 'digital-01', name: '第1章 逻辑代数基础' },
+          { id: 'digital-02', name: '第2章 门电路' },
+          { id: 'digital-03', name: '第3章 组合逻辑电路' },
+          { id: 'digital-04', name: '第4章 时序逻辑电路' },
+          { id: 'digital-05', name: '第5章 脉冲波形的产生与整形' }
+        ]
+      }
+    ];
+
+    const SEED_TASK_PLAN = [
+      { subjectId: 'subject-analog', chapterIndex: 0, type: 'theory', day: 0 },
+      { subjectId: 'subject-circuit', chapterIndex: 0, type: 'theory', day: 0 },
+      { subjectId: 'subject-analog', chapterIndex: 0, type: 'practice', day: 1 },
+      { subjectId: 'subject-analog', chapterIndex: 1, type: 'theory', day: 2 },
+      { subjectId: 'subject-digital', chapterIndex: 0, type: 'theory', day: 3 },
+      { subjectId: 'subject-circuit', chapterIndex: 1, type: 'practice', day: 4 },
+      { subjectId: 'subject-digital', chapterIndex: 1, type: 'practice', day: 5 }
+    ];
+
+    /* ----------------------------- 通用工具 ----------------------------- */
+    function makeId(prefix) {
+      try {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+          return prefix + '-' + window.crypto.randomUUID();
+        }
+      } catch (error) {
+        // 使用下方降级方案
+      }
+      return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 9);
+    }
+
+    function normalizeKey(value) {
+      return String(value == null ? '' : value)
+        .toLocaleLowerCase()
+        .replace(/[\s\u3000]+/g, '')
+        .replace(/[：:]/g, '');
+    }
+
+    function cleanSubjectName(value) {
+      return String(value == null ? '' : value)
+        .replace(/[：:]\s*$/, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function cleanChapterName(value) {
+      return String(value == null ? '' : value)
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function countCharacters(value) {
+      return Array.from(String(value == null ? '' : value)).length;
+    }
+
+    function debounce(fn, wait) {
+      let timer = null;
+
+      function debounced() {
+        const args = arguments;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function () {
+          timer = null;
+          fn.apply(null, args);
+        }, wait);
+      }
+
+      debounced.cancel = function () {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+      };
+
+      return debounced;
+    }
+
+    function getTodayIndex() {
+      return (new Date().getDay() + 6) % 7;
+    }
+
+    function getWeekStart() {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const offset = (start.getDay() + 6) % 7;
+      start.setDate(start.getDate() - offset);
+      return start;
+    }
+
+    function createSeedSubjects() {
+      return SEED_SUBJECTS.map(function (subject, index) {
+        return {
+          id: subject.id,
+          name: subject.name,
+          expanded: index === 0,
+          chapters: subject.chapters.map(function (chapter) {
+            return {
+              id: chapter.id,
+              name: chapter.name,
+              theory: false,
+              practice: false,
+              note: ''
+            };
+          })
+        };
+      });
+    }
+
+    function parseStoredSubjects(parsed) {
+      const source = Array.isArray(parsed) ? parsed : (parsed && parsed.subjects);
+      if (!Array.isArray(source)) return createSeedSubjects();
+
+      const subjectIds = new Set();
+      const chapterIds = new Set();
+      const subjects = [];
+
+      source.forEach(function (subject) {
+        if (!subject || typeof subject !== 'object') return;
+
+        const name = typeof subject.name === 'string' ? subject.name.trim() : '';
+        if (!name) return;
+
+        let subjectId = (typeof subject.id === 'string' && subject.id) ? subject.id : makeId('subject');
+        while (subjectIds.has(subjectId)) subjectId = makeId('subject');
+        subjectIds.add(subjectId);
+
+        const chapters = [];
+        if (Array.isArray(subject.chapters)) {
+          subject.chapters.forEach(function (chapter) {
+            if (!chapter || typeof chapter !== 'object') return;
+            const chapterName = typeof chapter.name === 'string' ? chapter.name.trim() : '';
+            if (!chapterName) return;
+
+            let chapterId = (typeof chapter.id === 'string' && chapter.id) ? chapter.id : makeId('chapter');
+            while (chapterIds.has(chapterId)) chapterId = makeId('chapter');
+            chapterIds.add(chapterId);
+
+            chapters.push({
+              id: chapterId,
+              name: chapterName,
+              theory: chapter.theory === true,
+              practice: chapter.practice === true,
+              note: typeof chapter.note === 'string' ? chapter.note : ''
+            });
+          });
+        }
+
+        subjects.push({
+          id: subjectId,
+          name: name,
+          expanded: false,
+          chapters: chapters
+        });
+      });
+
+      if (!subjects.length) return createSeedSubjects();
+      subjects.forEach(function (subject, index) { subject.expanded = index === 0; });
+      return subjects;
+    }
+
+    function createSeedTasks(subjects) {
+      const tasks = [];
+      const used = new Set();
+      const now = Date.now();
+
+      function pushTask(subject, chapter, type, day, index) {
+        if (!subject || !chapter) return;
+        const uniqKey = chapter.id + '|' + type;
+        if (used.has(uniqKey)) return;
+        used.add(uniqKey);
+        tasks.push({
+          id: 'seed-task-' + String(index + 1).padStart(2, '0'),
+          chapterId: chapter.id,
+          type: type,
+          day: day,
+          originalDay: day,
+          createdAt: now + index
+        });
+      }
+
+      SEED_TASK_PLAN.forEach(function (plan, index) {
+        const subject = subjects.find(function (item) { return item.id === plan.subjectId; }) ||
+          subjects[plan.subjectId === 'subject-circuit' ? 1 : (plan.subjectId === 'subject-digital' ? 2 : 0)];
+        const chapter = subject && subject.chapters[plan.chapterIndex];
+        pushTask(subject, chapter, plan.type, plan.day, index);
+      });
+
+      // 如果导入的数据结构与示例不同，用已有的前 7 个章节补足演示任务
+      if (!tasks.length) {
+        const flat = [];
+        subjects.forEach(function (subject) {
+          subject.chapters.forEach(function (chapter) {
+            flat.push({ subject: subject, chapter: chapter });
+          });
+        });
+        flat.slice(0, 7).forEach(function (item, index) {
+          pushTask(item.subject, item.chapter, index % 2 === 0 ? 'theory' : 'practice', index % 7, index);
+        });
+      }
+
+      return tasks;
+    }
+
+    function parseStoredTasks(parsed, subjects) {
+      const rawTasks = parsed && Array.isArray(parsed.tasks) ? parsed.tasks : null;
+      if (!rawTasks) return createSeedTasks(subjects);
+
+      const chapterIds = new Set();
+      subjects.forEach(function (subject) {
+        subject.chapters.forEach(function (chapter) { chapterIds.add(chapter.id); });
+      });
+
+      const taskIds = new Set();
+      const tasks = [];
+      rawTasks.forEach(function (task, index) {
+        if (!task || typeof task !== 'object') return;
+        if (!chapterIds.has(task.chapterId)) return;
+        if (task.type !== 'theory' && task.type !== 'practice') return;
+
+        let day = Number.isInteger(task.day) && task.day >= 0 && task.day <= 6 ? task.day : 0;
+        let originalDay = Number.isInteger(task.originalDay) && task.originalDay >= 0 && task.originalDay <= 6
+          ? task.originalDay
+          : day;
+
+        let id = (typeof task.id === 'string' && task.id) ? task.id : makeId('task');
+        while (taskIds.has(id)) id = makeId('task');
+        taskIds.add(id);
+
+        tasks.push({
+          id: id,
+          chapterId: task.chapterId,
+          type: task.type,
+          day: day,
+          originalDay: originalDay,
+          createdAt: Number.isFinite(task.createdAt) ? task.createdAt : Date.now() + index
+        });
+      });
+
+      return tasks;
+    }
+
+    function loadAppData() {
+      let parsed = null;
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) parsed = JSON.parse(raw);
+      } catch (error) {
+        parsed = null;
+      }
+
+      const subjects = parseStoredSubjects(parsed);
+      const tasks = parseStoredTasks(parsed, subjects);
+      return { subjects: subjects, tasks: tasks };
+    }
+
+    /* ----------------------------- 目录解析 ----------------------------- */
+    const RE_HEADING = /^(#{1,6})\s*(.*)$/;
+    const RE_WRAPPED_SUBJECT = /^[【\[](.+?)[】\]]$/;
+    const RE_SUBJECT_LABEL = /^(?:科目|课程|学科|Subject|Course)\s*[：:]\s*(.+)$/i;
+    const RE_CHAPTER_PREFIX = /^(?:第\s*[0-9一二三四五六七八九十百千零〇两]+\s*[章节讲课篇]|[Cc]hapter\s*\d+|[Ll]esson\s*\d+)/;
+    const RE_LIST_MARK = /^(?:[-*•·▪◦]\s*|\d{1,3}\s*[.、)）](?!\d)\s*|[（(]\d{1,3}[）)]\s*)/;
+
+    function parseCatalog(rawText) {
+      const normalizedText = String(rawText == null ? '' : rawText).replace(/\r\n?/g, '\n');
+      const items = [];
+
+      normalizedText.split('\n').forEach(function (rawLine) {
+        if (!rawLine.trim()) return;
+        if (/^\s*([-—_=]{3,})\s*$/.test(rawLine)) return;
+        if (/^\s*\/{2,}/.test(rawLine)) return;
+
+        const leading = rawLine.match(/^[\t ]*/)[0];
+        const indent = leading.replace(/\t/g, '    ').length;
+        let content = rawLine.trim();
+        let headingLevel = 0;
+        let forcedSubject = false;
+
+        const headingMatch = content.match(RE_HEADING);
+        if (headingMatch && headingMatch[2].trim()) {
+          headingLevel = headingMatch[1].length;
+          content = headingMatch[2].trim();
+        }
+
+        const wrappedMatch = content.match(RE_WRAPPED_SUBJECT);
+        if (wrappedMatch) {
+          content = wrappedMatch[1].trim();
+          forcedSubject = true;
+        }
+
+        const labelledMatch = content.match(RE_SUBJECT_LABEL);
+        if (labelledMatch) {
+          content = labelledMatch[1].trim();
+          forcedSubject = true;
+        }
+
+        let hadListMark = false;
+        const listMatch = content.match(RE_LIST_MARK);
+        if (listMatch) {
+          content = content.slice(listMatch[0].length).trim();
+          hadListMark = true;
+        }
+
+        if (!content) return;
+
+        const chapterLike = hadListMark || RE_CHAPTER_PREFIX.test(content);
+        const endsWithColon = /[：:]\s*$/.test(content);
+
+        items.push({
+          content: content,
+          indent: indent,
+          headingLevel: headingLevel,
+          chapterLike: chapterLike,
+          forcedSubject: forcedSubject || (endsWithColon && !chapterLike) || headingLevel === 1
+        });
+      });
+
+      const output = [];
+      const subjectMap = new Map();
+      let currentSubject = null;
+
+      function ensureSubject(name) {
+        const cleaned = cleanSubjectName(name);
+        if (!cleaned) return null;
+        const key = normalizeKey(cleaned);
+        if (!key) return null;
+
+        if (!subjectMap.has(key)) {
+          const subject = { name: cleaned, chapters: [], chapterKeys: new Set() };
+          subjectMap.set(key, subject);
+          output.push(subject);
+        }
+        return subjectMap.get(key);
+      }
+
+      function addChapter(name) {
+        if (!currentSubject) return;
+        const cleaned = cleanChapterName(name);
+        const key = normalizeKey(cleaned);
+        if (!cleaned || !key) return;
+        if (currentSubject.chapterKeys.has(key)) return;
+        currentSubject.chapterKeys.add(key);
+        currentSubject.chapters.push(cleaned);
+      }
+
+      for (let i = 0; i < items.length; i += 1) {
+        const item = items[i];
+        let isSubject = item.forcedSubject || (item.headingLevel > 1 && !currentSubject);
+
+        if (!isSubject && !currentSubject) isSubject = true;
+
+        if (!isSubject && currentSubject && item.headingLevel === 0 &&
+            item.indent === 0 && !item.chapterLike) {
+          const nextItem = items[i + 1];
+          const prevItem = items[i - 1];
+          if (nextItem) {
+            const nextIsDeeper = nextItem.indent > item.indent;
+            const boundaryBeforeChapter = nextItem.chapterLike &&
+              prevItem && (prevItem.chapterLike || prevItem.indent > 0) &&
+              currentSubject.chapters.length > 0;
+            if (nextIsDeeper || boundaryBeforeChapter) isSubject = true;
+          }
+        }
+
+        if (isSubject) {
+          const subject = ensureSubject(item.content);
+          if (subject) currentSubject = subject;
+          continue;
+        }
+
+        if (!currentSubject) currentSubject = ensureSubject('未分类科目');
+        addChapter(item.content);
+      }
+
+      return output
+        .filter(function (subject) { return subject.chapters.length > 0; })
+        .map(function (subject) {
+          return { name: subject.name, chapters: subject.chapters };
+        });
+    }
+
+    /* ----------------------------- Vue 应用 ----------------------------- */
+    createApp({
+      components: {
+        AnimatedPercent: {
+          props: {
+            value: { type: Number, default: 0 }
+          },
+          setup(props) {
+            const displayed = ref(Number(props.value) || 0);
+            let rafId = null;
+
+            watch(function () { return Number(props.value) || 0; }, function (nextValue) {
+              const from = displayed.value;
+              const to = nextValue;
+              if (from === to) return;
+              if (rafId) cancelAnimationFrame(rafId);
+
+              const startedAt = performance.now();
+              const duration = 500;
+              function animate(now) {
+                const progress = Math.min(1, (now - startedAt) / duration);
+                const eased = 1 - Math.pow(1 - progress, 3);
+                displayed.value = Math.round(from + (to - from) * eased);
+                if (progress < 1) {
+                  rafId = requestAnimationFrame(animate);
+                } else {
+                  rafId = null;
+                }
+              }
+              rafId = requestAnimationFrame(animate);
+            });
+
+            onBeforeUnmount(function () {
+              if (rafId) cancelAnimationFrame(rafId);
+            });
+
+            return { displayed };
+          },
+          template: '<span class="tabular-nums">{{ displayed }}%</span>'
+        }
+      },
+      setup() {
+        const initial = loadAppData();
+
+        const storageFailed = ref(false);
+        const state = reactive({
+          subjects: initial.subjects,
+          tasks: initial.tasks,
+          onlyUnfinished: false,
+          importText: '',
+          activeTab: 'knowledge',
+          knowledgeView: 'list'
+        });
+        const importMessage = ref(null);
+
+        const toast = reactive({
+          visible: false,
+          seq: 0,
+          chapterId: '',
+          chapterName: '',
+          previous: null
+        });
+        let toastTimer = null;
+
+        const taskModalOpen = ref(false);
+        const taskModalDay = ref(0);
+        const taskForm = reactive({
+          subjectId: '',
+          chapterId: '',
+          type: 'theory'
+        });
+        const subjectSelect = ref(null);
+
+        const focusOpen = ref(false);
+        const todayIndex = ref(getTodayIndex());
+
+        const draggingTaskId = ref(null);
+        const dragOverDay = ref(null);
+        const dragOverComplete = ref(false);
+
+        const treeDrawerOpen = ref(false);
+        const selectedTreeSubject = ref(null);
+        const selectedTreeChapter = ref(null);
+        const treeViewport = ref(null);
+        const panzoomWorld = ref(null);
+        const treeStage = ref(null);
+        const treeConnections = ref([]);
+        const zoomLevel = ref(90);
+        const focusedSubjectId = ref('');
+        const canvasReady = ref(false);
+        const TREE_START_SCALE = 0.9;
+        let treeConnectionsRaf = null;
+        let treeResizeObserver = null;
+        let treeStageRefreshTimer = null;
+        let treeCanvasSetupTimer = null;
+        let panzoom = null;
+        let panzoomWheelHandler = null;
+        let drawerPanBefore = null;
+        state.subjects.forEach(function (subject) {
+          if (typeof subject.treeCollapsed !== 'boolean') subject.treeCollapsed = false;
+        });
+
+        /* ---------- 暗色模式 ---------- */
+        const darkMode = ref(document.documentElement.classList.contains('dark'));
+
+        function toggleDarkMode() {
+          darkMode.value = !darkMode.value;
+          document.documentElement.classList.toggle('dark', darkMode.value);
+          try {
+            localStorage.setItem(THEME_KEY, darkMode.value ? 'dark' : 'light');
+          } catch (error) {
+            // 主题切换不依赖持久化，即使存储不可用也继续工作
+          }
+        }
+
+        /* ---------- 章节备注 ---------- */
+        const noteCounts = reactive({});
+        const openNotes = reactive(new Set());
+        const noteCountDebouncers = new Map();
+        let noteSaveDirty = false;
+
+        // 备注保存同样使用防抖，减少长文本输入时频繁写入 localStorage
+        const scheduleNoteSave = debounce(function () {
+          if (!noteSaveDirty) return;
+          persist();
+          noteSaveDirty = false;
+        }, NOTE_SAVE_DEBOUNCE);
+
+        state.subjects.forEach(function (subject) {
+          subject.chapters.forEach(function (chapter) {
+            noteCounts[chapter.id] = countCharacters(chapter.note);
+          });
+        });
+
+        function hasNote(chapter) {
+          return Boolean(chapter && typeof chapter.note === 'string' && chapter.note.trim());
+        }
+
+        function noteCount(chapter) {
+          if (!chapter) return 0;
+          return Object.prototype.hasOwnProperty.call(noteCounts, chapter.id)
+            ? noteCounts[chapter.id]
+            : countCharacters(chapter.note);
+        }
+
+        function scheduleNoteCount(chapter) {
+          if (!noteCountDebouncers.has(chapter.id)) {
+            noteCountDebouncers.set(chapter.id, debounce(function () {
+              noteCounts[chapter.id] = countCharacters(chapter.note);
+            }, NOTE_COUNT_DEBOUNCE));
+          }
+          noteCountDebouncers.get(chapter.id)();
+        }
+
+        function onNoteInput(chapter, event) {
+          chapter.note = event.target.value;
+          scheduleNoteCount(chapter);
+          noteSaveDirty = true;
+          scheduleNoteSave();
+        }
+
+        function flushNotePersistence() {
+          scheduleNoteSave.cancel();
+          if (noteSaveDirty) {
+            persist();
+            noteSaveDirty = false;
+          }
+        }
+
+        function isNoteEditorOpen(chapter) {
+          return openNotes.has(chapter.id);
+        }
+
+        function toggleNoteEditor(chapter) {
+          if (openNotes.has(chapter.id)) {
+            openNotes.delete(chapter.id);
+            flushNotePersistence();
+            return;
+          }
+
+          openNotes.add(chapter.id);
+          noteCounts[chapter.id] = countCharacters(chapter.note);
+          nextTick(function () {
+            const field = document.getElementById(noteFieldId(chapter));
+            if (field) field.focus();
+          });
+        }
+
+        function noteFieldId(chapter) {
+          return 'chapter-note-' + String(chapter.id).replace(/[^a-zA-Z0-9_-]/g, '');
+        }
+
+        function notePanelId(chapter) {
+          return 'chapter-note-panel-' + String(chapter.id).replace(/[^a-zA-Z0-9_-]/g, '');
+        }
+
+        /* ---------- 备注 Tooltip ---------- */
+        const noteTooltipEl = ref(null);
+        const noteTooltip = reactive({
+          visible: false,
+          note: '',
+          chapterName: '',
+          width: 300,
+          left: 0,
+          top: 0
+        });
+        let noteTooltipSeq = 0;
+
+        function taskHasNote(task) {
+          const context = findChapterContext(task.chapterId);
+          return Boolean(context && hasNote(context.chapter));
+        }
+
+        function showNoteTooltip(task, event) {
+          const context = findChapterContext(task.chapterId);
+          if (!context || !hasNote(context.chapter) || !event || !event.currentTarget) return;
+
+          const triggerRect = event.currentTarget.getBoundingClientRect();
+          const margin = 12;
+          const gap = 8;
+          const width = Math.max(160, Math.min(320, window.innerWidth - margin * 2));
+          const center = triggerRect.left + triggerRect.width / 2;
+          const left = Math.max(margin, Math.min(center - width / 2, window.innerWidth - width - margin));
+
+          noteTooltip.note = context.chapter.note.trim();
+          noteTooltip.chapterName = context.chapter.name;
+          noteTooltip.width = width;
+          noteTooltip.left = left;
+          noteTooltip.top = triggerRect.bottom + gap;
+          noteTooltip.visible = true;
+
+          const seq = ++noteTooltipSeq;
+          nextTick(function () {
+            if (seq !== noteTooltipSeq || !noteTooltipEl.value) return;
+            const height = noteTooltipEl.value.offsetHeight;
+            let top = triggerRect.bottom + gap;
+            if (top + height > window.innerHeight - margin && triggerRect.top - gap - height >= margin) {
+              top = triggerRect.top - gap - height;
+            } else {
+              top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
+            }
+            noteTooltip.top = top;
+          });
+        }
+
+        function hideNoteTooltip() {
+          noteTooltipSeq += 1;
+          noteTooltip.visible = false;
+        }
+
+        /* ---------- 持久化 ---------- */
+        function persist() {
+          try {
+            const payload = {
+              version: 3,
+              savedAt: new Date().toISOString(),
+              subjects: state.subjects.map(function (subject) {
+                return {
+                  id: subject.id,
+                  name: subject.name,
+                  chapters: subject.chapters.map(function (chapter) {
+                    return {
+                      id: chapter.id,
+                      name: chapter.name,
+                      theory: chapter.theory === true,
+                      practice: chapter.practice === true,
+                      note: typeof chapter.note === 'string' ? chapter.note : ''
+                    };
+                  })
+                };
+              }),
+              tasks: state.tasks.map(function (task) {
+                return {
+                  id: task.id,
+                  chapterId: task.chapterId,
+                  type: task.type,
+                  day: task.day,
+                  originalDay: task.originalDay,
+                  createdAt: task.createdAt
+                };
+              })
+            };
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+            storageFailed.value = false;
+          } catch (error) {
+            storageFailed.value = true;
+          }
+        }
+
+        /* ---------- 日期 ---------- */
+        const weekDays = computed(function () {
+          const start = getWeekStart();
+          return DAY_NAMES.map(function (name, index) {
+            const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + index);
+            const monthDay = (date.getMonth() + 1) + '月' + date.getDate() + '日';
+            return {
+              index: index,
+              name: name,
+              dateLabel: (date.getMonth() + 1) + '/' + date.getDate(),
+              monthDay: monthDay,
+              isToday: index === todayIndex.value
+            };
+          });
+        });
+
+        const weekRange = computed(function () {
+          const days = weekDays.value;
+          return days[0].monthDay + ' — ' + days[6].monthDay;
+        });
+
+        /* ---------- 章节共享状态 ---------- */
+        function isChapterComplete(chapter) {
+          return chapter.theory === true && chapter.practice === true;
+        }
+
+        function subjectCompleted(subject) {
+          return subject.chapters.reduce(function (count, chapter) {
+            return count + (isChapterComplete(chapter) ? 1 : 0);
+          }, 0);
+        }
+
+        function subjectPercent(subject) {
+          if (!subject.chapters.length) return 0;
+          return Math.round(subjectCompleted(subject) / subject.chapters.length * 100);
+        }
+
+        /* ---------- 横向技能树节点状态 ---------- */
+        function treeNodeStatus(chapter) {
+          if (isChapterComplete(chapter)) return '已完成';
+          if (chapter.theory || chapter.practice) return '进行中';
+          return '未开始';
+        }
+
+        function treeNodeClass(chapter) {
+          if (isChapterComplete(chapter)) {
+            return 'border-solid border-green-500 bg-green-50 text-green-800 dark:border-green-500 dark:bg-green-950/30 dark:text-green-200 font-bold';
+          }
+          if (chapter.theory || chapter.practice) {
+            return 'border-solid border-yellow-400 bg-yellow-50 text-yellow-700 dark:border-yellow-500 dark:bg-yellow-950/30 dark:text-yellow-200';
+          }
+          return 'border-dashed border-gray-300 bg-white text-gray-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-500';
+        }
+
+        function treeNodeStatusClass(chapter) {
+          if (isChapterComplete(chapter)) return 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-200';
+          if (chapter.theory || chapter.practice) return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-200';
+          return 'bg-gray-100 text-gray-500 dark:bg-slate-800 dark:text-slate-400';
+        }
+
+        function chapterProgressPercent(chapter) {
+          if (!chapter) return 0;
+          if (isChapterComplete(chapter)) return 100;
+          if (chapter.theory || chapter.practice) return 50;
+          return 0;
+        }
+
+        /* ---------- 无限画布：Panzoom / 智能定位 ---------- */
+        function getCanvasScale() {
+          if (!panzoomWorld.value || !panzoomWorld.value.offsetWidth) return 1;
+          const rect = panzoomWorld.value.getBoundingClientRect();
+          const scale = rect.width / panzoomWorld.value.offsetWidth;
+          return scale > 0 ? scale : 1;
+        }
+
+        function onPanzoomChange(event) {
+          if (event && event.detail && typeof event.detail.scale === 'number') {
+            zoomLevel.value = Math.round(event.detail.scale * 100);
+          }
+        }
+
+        function teardownPanzoom() {
+          if (panzoom) {
+            panzoom.destroy();
+            panzoom = null;
+          }
+          if (treeViewport.value && panzoomWheelHandler) {
+            treeViewport.value.removeEventListener('wheel', panzoomWheelHandler);
+          }
+          if (panzoomWorld.value) {
+            panzoomWorld.value.removeEventListener('panzoomchange', onPanzoomChange);
+          }
+          panzoomWheelHandler = null;
+          drawerPanBefore = null;
+          canvasReady.value = false;
+        }
+
+        function setupPanzoom() {
+          teardownPanzoom();
+          if (!window.Panzoom || !panzoomWorld.value || !treeViewport.value) {
+            canvasReady.value = true;
+            return false;
+          }
+
+          panzoom = window.Panzoom(panzoomWorld.value, {
+            minScale: 0.3,
+            maxScale: 2,
+            startScale: TREE_START_SCALE,
+            origin: '0 0',
+            cursor: 'grab',
+            duration: 300,
+            step: 0.2,
+            excludeClass: 'panzoom-exclude'
+          });
+
+          panzoomWheelHandler = function (event) {
+            if (!panzoom || !treeViewport.value || !panzoomWorld.value) return;
+
+            // 画布已接管滚轮，避免页面跟着滚动
+            event.preventDefault();
+
+            const deltaMultiplier = event.deltaMode === 1 ? 16 : (event.deltaMode === 2 ? 100 : 1);
+            const delta = event.deltaY * deltaMultiplier;
+            if (!delta) return;
+
+            const viewportRect = treeViewport.value.getBoundingClientRect();
+            const worldRect = panzoomWorld.value.getBoundingClientRect();
+            const scale = getCanvasScale();
+            if (!scale || scale <= 0) return;
+
+            // 当前实际的 pan（而非动画中的目标 pan），保证鼠标下的内容不跳动
+            const panX = (worldRect.left - viewportRect.left) / scale;
+            const panY = (worldRect.top - viewportRect.top) / scale;
+            const pointerX = event.clientX - viewportRect.left;
+            const pointerY = event.clientY - viewportRect.top;
+
+            // 鼠标所在位置对应的画布内部坐标
+            const localX = pointerX / scale - panX;
+            const localY = pointerY / scale - panY;
+
+            const rawFactor = Math.exp(-delta * 0.0018);
+            const factor = Math.min(1.35, Math.max(0.74, rawFactor));
+            const nextScale = Math.min(2, Math.max(0.3, scale * factor));
+            if (Math.abs(nextScale - scale) < 0.0001) return;
+
+            // 手动计算新 pan：让 localX/localY 缩放前后始终停在鼠标位置
+            const nextPanX = pointerX / nextScale - localX;
+            const nextPanY = pointerY / nextScale - localY;
+
+            panzoom.zoom(nextScale, { animate: false, force: true });
+            panzoom.pan(nextPanX, nextPanY, { animate: false, force: true });
+            zoomLevel.value = Math.round(nextScale * 100);
+          };
+          treeViewport.value.addEventListener('wheel', panzoomWheelHandler, { passive: false });
+          panzoomWorld.value.addEventListener('panzoomchange', onPanzoomChange);
+          zoomLevel.value = Math.round(panzoom.getScale() * 100);
+          return true;
+        }
+
+        function centerTreeNode(node, animate, targetScale) {
+          if (!node || !panzoom || !treeViewport.value || !panzoomWorld.value) return;
+
+          const currentScale = getCanvasScale();
+          const worldRect = panzoomWorld.value.getBoundingClientRect();
+          const nodeRect = node.getBoundingClientRect();
+          const localCenterX = (nodeRect.left + nodeRect.width / 2 - worldRect.left) / currentScale;
+          const localCenterY = (nodeRect.top + nodeRect.height / 2 - worldRect.top) / currentScale;
+          const nextScale = typeof targetScale === 'number' ? targetScale : currentScale;
+          const viewportWidth = treeViewport.value.clientWidth;
+          const viewportHeight = treeViewport.value.clientHeight;
+          const targetX = viewportWidth / (2 * nextScale) - localCenterX;
+          const targetY = viewportHeight / (2 * nextScale) - localCenterY;
+
+          if (Math.abs(nextScale - panzoom.getScale()) > 0.001) {
+            panzoom.zoom(nextScale, { animate: false, force: true });
+          }
+          panzoom.pan(targetX, targetY, { animate: animate === true, duration: 320, force: true });
+          zoomLevel.value = Math.round(nextScale * 100);
+        }
+
+        function initialTreeSubject() {
+          const groups = visibleSubjects.value;
+          const group = groups.find(function (item) {
+            return item.chapters.some(function (chapter) { return !isChapterComplete(chapter); });
+          }) || groups[0];
+          return group ? group.subject : null;
+        }
+
+        function focusInitialTreeSubject(animate, targetScale) {
+          const subject = initialTreeSubject();
+          const rootNode = treeStage.value ? treeStage.value.querySelector('[data-node-id="tree-root"]') : null;
+          if (!subject || !treeStage.value) {
+            if (rootNode) centerTreeNode(rootNode, animate === true, targetScale);
+            canvasReady.value = true;
+            return;
+          }
+          const node = treeStage.value.querySelector('[data-node-id="tree-subject-' + subject.id + '"]');
+          if (node) {
+            centerTreeNode(node, animate === true, targetScale);
+            focusedSubjectId.value = subject.id;
+          } else if (rootNode) {
+            centerTreeNode(rootNode, animate === true, targetScale);
+          }
+          canvasReady.value = true;
+        }
+
+        async function focusSubjectFromMap(subject) {
+          if (!subject || state.knowledgeView !== 'tree') return;
+
+          if (!visibleSubjects.value.some(function (group) { return group.subject.id === subject.id; })) {
+            state.onlyUnfinished = false;
+            await nextTick();
+          }
+          await nextTick();
+          if (!panzoom) setupPanzoom();
+          observeTreeStage();
+          scheduleTreeConnections();
+
+          const node = treeStage.value && treeStage.value.querySelector('[data-node-id="tree-subject-' + subject.id + '"]');
+          if (!node) return;
+
+          focusedSubjectId.value = subject.id;
+          if (treeViewport.value) {
+            const rect = treeViewport.value.getBoundingClientRect();
+            if (rect.top < 8 || rect.bottom > window.innerHeight - 8) {
+              treeViewport.value.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }
+          centerTreeNode(node, true);
+        }
+
+        function toggleTreeSubject(subject) {
+          if (!subject) return;
+          subject.treeCollapsed = !subject.treeCollapsed;
+          if (subject.treeCollapsed && selectedTreeSubject.value && selectedTreeSubject.value.id === subject.id) {
+            closeTreeDrawer();
+          }
+          nextTick(function () {
+            // 折叠/展开会改变整棵树的高度，必须等 Vue 完成 DOM 更新后再重算剩余连线
+            scheduleTreeConnections();
+          });
+        }
+
+        function zoomCanvas(factor) {
+          if (!panzoom || !treeViewport.value) return;
+          const currentScale = panzoom.getScale();
+          const targetScale = Math.min(2, Math.max(0.3, currentScale * factor));
+          if (Math.abs(targetScale - currentScale) < 0.001) return;
+
+          const pan = panzoom.getPan();
+          const viewportWidth = treeViewport.value.clientWidth;
+          const viewportHeight = treeViewport.value.clientHeight;
+          const localCenterX = viewportWidth / (2 * currentScale) - pan.x;
+          const localCenterY = viewportHeight / (2 * currentScale) - pan.y;
+          const targetX = viewportWidth / (2 * targetScale) - localCenterX;
+          const targetY = viewportHeight / (2 * targetScale) - localCenterY;
+
+          panzoom.zoom(targetScale, { animate: true, duration: 240, force: true });
+          panzoom.pan(targetX, targetY, { animate: true, duration: 240, force: true });
+          zoomLevel.value = Math.round(targetScale * 100);
+        }
+
+        function resetCanvasView() {
+          if (!panzoom) setupPanzoom();
+          if (!panzoom) return;
+          const subject = initialTreeSubject();
+          const node = subject && treeStage.value
+            ? treeStage.value.querySelector('[data-node-id="tree-subject-' + subject.id + '"]')
+            : treeStage.value && treeStage.value.querySelector('[data-node-id="tree-root"]');
+          if (node) {
+            centerTreeNode(node, true, TREE_START_SCALE);
+            if (subject) focusedSubjectId.value = subject.id;
+          } else {
+            panzoom.zoom(TREE_START_SCALE, { animate: true, duration: 300, force: true });
+            panzoom.pan(0, 0, { animate: true, duration: 300, force: true });
+          }
+        }
+
+        function shiftCanvasForDrawer(chapterId) {
+          if (!panzoom || !treeViewport.value || window.innerWidth < 768) return;
+          const node = treeStage.value
+            ? treeStage.value.querySelector('[data-node-id="tree-chapter-' + chapterId + '"]')
+            : null;
+
+          const pan = panzoom.getPan();
+          if (!drawerPanBefore) drawerPanBefore = { x: pan.x, y: pan.y };
+
+          const scale = getCanvasScale();
+          const drawerWidth = window.innerWidth / 3;
+          const safeRight = window.innerWidth - drawerWidth - 24;
+          const baseShift = window.innerWidth * 0.15;
+          let requiredShift = 0;
+          let maxShift = Infinity;
+          if (node) {
+            const nodeRect = node.getBoundingClientRect();
+            const viewportRect = treeViewport.value.getBoundingClientRect();
+            requiredShift = Math.max(0, nodeRect.right - safeRight + 24);
+            // 如果节点已经很靠左，不能为了平移 15% 把它推出画布左侧
+            maxShift = Math.max(0, nodeRect.left - viewportRect.left - 24);
+          }
+          const shift = Math.min(Math.max(baseShift, requiredShift), maxShift);
+          if (shift <= 0) return;
+          panzoom.pan(pan.x - shift / scale, pan.y, { animate: true, duration: 300, force: true });
+        }
+
+        function restorePanAfterDrawer() {
+          if (!panzoom || !drawerPanBefore) {
+            drawerPanBefore = null;
+            return;
+          }
+          const target = drawerPanBefore;
+          drawerPanBefore = null;
+          panzoom.pan(target.x, target.y, { animate: true, duration: 300, force: true });
+        }
+
+        function openTreeDrawer(subject, chapter) {
+          hideNoteTooltip();
+          selectedTreeSubject.value = subject;
+          selectedTreeChapter.value = chapter;
+          focusedSubjectId.value = subject ? subject.id : '';
+          treeDrawerOpen.value = true;
+          nextTick(function () {
+            const closeButton = document.getElementById('tree-drawer-close');
+            if (closeButton) closeButton.focus();
+            scheduleTreeConnections();
+            setTimeout(function () {
+              if (treeDrawerOpen.value && selectedTreeChapter.value) {
+                shiftCanvasForDrawer(selectedTreeChapter.value.id);
+              }
+            }, 60);
+          });
+        }
+
+        function closeTreeDrawer() {
+          const wasOpen = treeDrawerOpen.value;
+          treeDrawerOpen.value = false;
+          flushNotePersistence();
+          if (wasOpen) restorePanAfterDrawer();
+          nextTick(function () { scheduleTreeConnections(); });
+        }
+
+        function buildTreeConnections() {
+          if (state.knowledgeView !== 'tree') return;
+          const stage = treeStage.value;
+          if (!stage) return;
+
+          const scale = getCanvasScale();
+          const stageRect = stage.getBoundingClientRect();
+          const edges = [];
+
+          function addEdge(parentEl, childEl, id) {
+            if (!parentEl || !childEl) return;
+            const parentRect = parentEl.getBoundingClientRect();
+            const childRect = childEl.getBoundingClientRect();
+            const startX = (parentRect.right - stageRect.left) / scale;
+            const startY = (parentRect.top + parentRect.height / 2 - stageRect.top) / scale;
+            const endX = (childRect.left - stageRect.left) / scale;
+            const endY = (childRect.top + childRect.height / 2 - stageRect.top) / scale;
+            const midX = startX + Math.max(28, (endX - startX) / 2);
+
+            edges.push({
+              id: id,
+              d: 'M ' + startX + ' ' + startY + ' H ' + midX + ' V ' + endY + ' H ' + endX,
+              dotX: midX,
+              dotY: endY
+            });
+          }
+
+          const rootEl = stage.querySelector('[data-node-id="tree-root"]');
+
+          visibleSubjects.value.forEach(function (group) {
+            const subjectEl = stage.querySelector('[data-node-id="tree-subject-' + group.subject.id + '"]');
+            addEdge(rootEl, subjectEl, 'tree-root-' + group.subject.id);
+
+            if (!group.subject.treeCollapsed) {
+              group.chapters.forEach(function (chapter) {
+                const chapterEl = stage.querySelector('[data-node-id="tree-chapter-' + chapter.id + '"]');
+                addEdge(subjectEl, chapterEl, 'tree-' + group.subject.id + '-' + chapter.id);
+              });
+            }
+          });
+
+          treeConnections.value = edges;
+        }
+
+        function scheduleTreeConnections() {
+          if (treeConnectionsRaf) cancelAnimationFrame(treeConnectionsRaf);
+          buildTreeConnections();
+          treeConnectionsRaf = requestAnimationFrame(function () {
+            buildTreeConnections();
+            treeConnectionsRaf = null;
+          });
+        }
+
+        function observeTreeStage() {
+          if (treeResizeObserver) {
+            treeResizeObserver.disconnect();
+            treeResizeObserver = null;
+          }
+          if (treeStage.value && typeof ResizeObserver !== 'undefined') {
+            treeResizeObserver = new ResizeObserver(scheduleTreeConnections);
+            treeResizeObserver.observe(treeStage.value);
+          }
+        }
+
+        const totalChapters = computed(function () {
+          return state.subjects.reduce(function (sum, subject) {
+            return sum + subject.chapters.length;
+          }, 0);
+        });
+
+        const completedChapters = computed(function () {
+          return state.subjects.reduce(function (sum, subject) {
+            return sum + subjectCompleted(subject);
+          }, 0);
+        });
+
+        const remainingChapters = computed(function () {
+          return totalChapters.value - completedChapters.value;
+        });
+
+        const overallPercent = computed(function () {
+          if (!totalChapters.value) return 0;
+          return Math.round(completedChapters.value / totalChapters.value * 100);
+        });
+
+        const visibleSubjects = computed(function () {
+          const groups = [];
+          state.subjects.forEach(function (subject) {
+            const chapters = state.onlyUnfinished
+              ? subject.chapters.filter(function (chapter) { return !isChapterComplete(chapter); })
+              : subject.chapters;
+            if (chapters.length > 0) groups.push({ subject: subject, chapters: chapters });
+          });
+          return groups;
+        });
+
+        const visibleChapterCount = computed(function () {
+          return visibleSubjects.value.reduce(function (sum, group) {
+            return sum + group.chapters.length;
+          }, 0);
+        });
+
+        function chapterNo(subject, chapter) {
+          const index = subject.chapters.findIndex(function (item) { return item.id === chapter.id; });
+          return String(index + 1).padStart(2, '0');
+        }
+
+        function panelId(subject) {
+          return 'subject-panel-' + String(subject.id).replace(/[^a-zA-Z0-9_-]/g, '');
+        }
+
+        function toggleSubject(subject) {
+          subject.expanded = !subject.expanded;
+        }
+
+        function switchKnowledgeView(view) {
+          if (view !== 'list' && view !== 'tree') return;
+          if (state.knowledgeView === view) return;
+          state.knowledgeView = view;
+          if (view === 'list') {
+            closeTreeDrawer();
+            if (treeCanvasSetupTimer) clearTimeout(treeCanvasSetupTimer);
+            teardownPanzoom();
+            treeConnections.value = [];
+          } else {
+            hideNoteTooltip();
+            enterTreeCanvas();
+          }
+        }
+
+        function enterTreeCanvas() {
+          if (state.knowledgeView !== 'tree') return;
+          if (treeCanvasSetupTimer) clearTimeout(treeCanvasSetupTimer);
+          nextTick(function () {
+            if (state.knowledgeView !== 'tree') return;
+            setupPanzoom();
+            observeTreeStage();
+            scheduleTreeConnections();
+            treeCanvasSetupTimer = setTimeout(function () {
+              if (state.knowledgeView !== 'tree') return;
+              focusInitialTreeSubject(false, TREE_START_SCALE);
+              canvasReady.value = true;
+              scheduleTreeConnections();
+            }, 70);
+          });
+        }
+
+        /* ---------- 共享任务解析：完成状态永远由章节勾选状态推导 ---------- */
+        function findChapterContext(chapterId) {
+          for (let i = 0; i < state.subjects.length; i += 1) {
+            const subject = state.subjects[i];
+            const chapter = subject.chapters.find(function (item) { return item.id === chapterId; });
+            if (chapter) return { subject: subject, chapter: chapter };
+          }
+          return null;
+        }
+
+        const resolvedTasks = computed(function () {
+          return state.tasks.map(function (task) {
+            const context = findChapterContext(task.chapterId);
+            if (!context) return null;
+            return {
+              id: task.id,
+              chapterId: task.chapterId,
+              type: task.type,
+              day: task.day,
+              originalDay: task.originalDay,
+              createdAt: task.createdAt,
+              subjectId: context.subject.id,
+              subjectName: context.subject.name,
+              chapterName: context.chapter.name,
+              completed: context.chapter[task.type] === true,
+              delayed: task.day > task.originalDay
+            };
+          }).filter(Boolean);
+        });
+
+        function sortByCreated(a, b) {
+          return (a.createdAt || 0) - (b.createdAt || 0);
+        }
+
+        const boardDays = computed(function () {
+          return weekDays.value.map(function (day) {
+            return {
+              index: day.index,
+              name: day.name,
+              monthDay: day.monthDay,
+              isToday: day.isToday,
+              tasks: resolvedTasks.value
+                .filter(function (task) { return task.day === day.index && !task.completed; })
+                .sort(sortByCreated)
+            };
+          });
+        });
+
+        const completedTasks = computed(function () {
+          return resolvedTasks.value
+            .filter(function (task) { return task.completed; })
+            .sort(function (a, b) { return (a.day - b.day) || sortByCreated(a, b); });
+        });
+
+        const weekTaskCount = computed(function () { return resolvedTasks.value.length; });
+        const weekCompletedCount = computed(function () { return completedTasks.value.length; });
+        const weekPendingCount = computed(function () { return weekTaskCount.value - weekCompletedCount.value; });
+        const weekCompletionPercent = computed(function () {
+          if (!weekTaskCount.value) return 0;
+          return Math.round(weekCompletedCount.value / weekTaskCount.value * 100);
+        });
+        const weekDelayedCount = computed(function () {
+          return resolvedTasks.value.filter(function (task) { return task.delayed && !task.completed; }).length;
+        });
+
+        const todayTasks = computed(function () {
+          return resolvedTasks.value
+            .filter(function (task) { return task.day === todayIndex.value; })
+            .sort(function (a, b) {
+              if (a.completed !== b.completed) return a.completed ? 1 : -1;
+              return sortByCreated(a, b);
+            });
+        });
+        const todayPendingCount = computed(function () {
+          return todayTasks.value.filter(function (task) { return !task.completed; }).length;
+        });
+        const todayCompletedCount = computed(function () {
+          return todayTasks.value.filter(function (task) { return task.completed; }).length;
+        });
+        const todayCompletionPercent = computed(function () {
+          if (!todayTasks.value.length) return 0;
+          return Math.round(todayCompletedCount.value / todayTasks.value.length * 100);
+        });
+
+        function dayName(index) {
+          return DAY_NAMES[index] || '';
+        }
+
+        function typeLabel(type) {
+          return type === 'practice' ? '例题练习' : '理论学习';
+        }
+
+        /* ---------- 撤销 Toast ---------- */
+        function showToast(chapter, previous) {
+          if (toastTimer) clearTimeout(toastTimer);
+          toast.chapterId = chapter.id;
+          toast.chapterName = chapter.name;
+          toast.previous = previous;
+          toast.seq += 1;
+          toast.visible = true;
+          toastTimer = setTimeout(function () {
+            toast.visible = false;
+            toastTimer = null;
+          }, TOAST_DURATION);
+        }
+
+        function findChapter(chapterId) {
+          const context = findChapterContext(chapterId);
+          return context ? context.chapter : null;
+        }
+
+        function undoChange() {
+          const chapter = findChapter(toast.chapterId);
+          if (chapter && toast.previous) {
+            chapter.theory = toast.previous.theory;
+            chapter.practice = toast.previous.practice;
+            persist();
+          }
+          if (toastTimer) {
+            clearTimeout(toastTimer);
+            toastTimer = null;
+          }
+          toast.visible = false;
+        }
+
+        /* ---------- 知识库操作 ---------- */
+        function toggleChapter(chapter, field, event) {
+          const nextValue = Boolean(event.target.checked);
+          if (chapter[field] === nextValue) return;
+          const previous = { theory: chapter.theory, practice: chapter.practice };
+          chapter[field] = nextValue;
+          persist();
+          showToast(chapter, previous);
+        }
+
+        /* ---------- 任务操作 ---------- */
+        function completeTask(taskId) {
+          const task = state.tasks.find(function (item) { return item.id === taskId; });
+          if (!task) return;
+          const context = findChapterContext(task.chapterId);
+          if (!context) return;
+          const chapter = context.chapter;
+          if (chapter[task.type] === true) return;
+
+          hideNoteTooltip();
+          const previous = { theory: chapter.theory, practice: chapter.practice };
+          chapter[task.type] = true;
+          persist();
+          showToast(chapter, previous);
+        }
+
+        function onTaskDragStart(taskId, event) {
+          hideNoteTooltip();
+          draggingTaskId.value = taskId;
+          dragOverDay.value = null;
+          dragOverComplete.value = false;
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', taskId);
+          }
+        }
+
+        function onTaskDragEnd() {
+          draggingTaskId.value = null;
+          dragOverDay.value = null;
+          dragOverComplete.value = false;
+        }
+
+        function draggedTaskId(event) {
+          if (event && event.dataTransfer) {
+            const value = event.dataTransfer.getData('text/plain');
+            if (value) return value;
+          }
+          return draggingTaskId.value;
+        }
+
+        function dropOnDay(day, event) {
+          const taskId = draggedTaskId(event);
+          const task = state.tasks.find(function (item) { return item.id === taskId; });
+          if (task && task.day !== day) {
+            task.day = day;
+            persist();
+          }
+          draggingTaskId.value = null;
+          dragOverDay.value = null;
+          dragOverComplete.value = false;
+        }
+
+        function dropOnCompleted(event) {
+          const taskId = draggedTaskId(event);
+          if (taskId) completeTask(taskId);
+          draggingTaskId.value = null;
+          dragOverDay.value = null;
+          dragOverComplete.value = false;
+        }
+
+        function onDragLeaveDay(day, event) {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            if (dragOverDay.value === day) dragOverDay.value = null;
+          }
+        }
+
+        function onDragLeaveCompleted(event) {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            dragOverComplete.value = false;
+          }
+        }
+
+        /* ---------- 新建任务弹窗 ---------- */
+        const selectedSubject = computed(function () {
+          return state.subjects.find(function (subject) { return subject.id === taskForm.subjectId; }) || null;
+        });
+
+        const availableChapters = computed(function () {
+          return selectedSubject.value ? selectedSubject.value.chapters : [];
+        });
+
+        const selectedChapter = computed(function () {
+          if (!selectedSubject.value) return null;
+          return selectedSubject.value.chapters.find(function (chapter) {
+            return chapter.id === taskForm.chapterId;
+          }) || null;
+        });
+
+        const selectedTypeAlreadyDone = computed(function () {
+          return selectedChapter.value ? selectedChapter.value[taskForm.type] === true : false;
+        });
+
+        function openTaskModal(day) {
+          hideNoteTooltip();
+          taskModalDay.value = Math.max(0, Math.min(6, day));
+          const firstSubject = state.subjects[0];
+          taskForm.subjectId = firstSubject ? firstSubject.id : '';
+          taskForm.chapterId = firstSubject && firstSubject.chapters[0] ? firstSubject.chapters[0].id : '';
+          taskForm.type = 'theory';
+          taskModalOpen.value = true;
+          nextTick(function () {
+            if (subjectSelect.value) subjectSelect.value.focus();
+          });
+        }
+
+        function closeTaskModal() {
+          taskModalOpen.value = false;
+        }
+
+        function onTaskSubjectChange() {
+          const subject = selectedSubject.value;
+          taskForm.chapterId = subject && subject.chapters[0] ? subject.chapters[0].id : '';
+        }
+
+        function addTask() {
+          if (!selectedSubject.value || !selectedChapter.value) return;
+          const task = {
+            id: makeId('task'),
+            chapterId: selectedChapter.value.id,
+            type: taskForm.type,
+            day: taskModalDay.value,
+            originalDay: taskModalDay.value,
+            createdAt: Date.now()
+          };
+          state.tasks.push(task);
+          persist();
+          closeTaskModal();
+          state.activeTab = 'week';
+        }
+
+        /* ---------- Tab / 今日聚焦 ---------- */
+        function switchTab(tab) {
+          if (tab !== 'knowledge' && tab !== 'week') return;
+          if (state.activeTab === tab) return;
+          hideNoteTooltip();
+          closeTreeDrawer();
+          flushNotePersistence();
+          if (state.knowledgeView === 'tree') {
+            if (treeCanvasSetupTimer) clearTimeout(treeCanvasSetupTimer);
+            teardownPanzoom();
+          }
+          state.activeTab = tab;
+          if (tab === 'knowledge' && state.knowledgeView === 'tree') {
+            enterTreeCanvas();
+          }
+          if (typeof window !== 'undefined') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }
+
+        function openFocus() {
+          hideNoteTooltip();
+          closeTreeDrawer();
+          flushNotePersistence();
+          todayIndex.value = getTodayIndex();
+          focusOpen.value = true;
+        }
+
+        function closeFocus() {
+          focusOpen.value = false;
+        }
+
+        function addTaskFromFocus() {
+          focusOpen.value = false;
+          openTaskModal(todayIndex.value);
+        }
+
+        /* ---------- 目录导入 ---------- */
+        function clearImportMessage() {
+          importMessage.value = null;
+        }
+
+        function handleImport() {
+          const text = state.importText.trim();
+          if (!text) return;
+
+          const parsed = parseCatalog(text);
+          const parsedChapterCount = parsed.reduce(function (sum, subject) {
+            return sum + subject.chapters.length;
+          }, 0);
+
+          if (!parsed.length || !parsedChapterCount) {
+            importMessage.value = {
+              type: 'error',
+              text: '没有识别到有效章节。请让科目独占一行，并把章节缩进或用“-”标记后重试。'
+            };
+            return;
+          }
+
+          let addedSubjects = 0;
+          let addedChapters = 0;
+          let skippedChapters = 0;
+
+          parsed.forEach(function (parsedSubject) {
+            const subjectKey = normalizeKey(parsedSubject.name);
+            let subject = state.subjects.find(function (item) {
+              return normalizeKey(item.name) === subjectKey;
+            });
+
+            if (!subject) {
+              subject = {
+                id: makeId('subject'),
+                name: parsedSubject.name,
+                expanded: true,
+                treeCollapsed: false,
+                chapters: []
+              };
+              state.subjects.push(subject);
+              addedSubjects += 1;
+            }
+
+            const chapterKeys = new Set(subject.chapters.map(function (chapter) {
+              return normalizeKey(chapter.name);
+            }));
+            const beforeCount = subject.chapters.length;
+
+            parsedSubject.chapters.forEach(function (chapterName) {
+              const key = normalizeKey(chapterName);
+              if (!key) return;
+              if (chapterKeys.has(key)) {
+                skippedChapters += 1;
+                return;
+              }
+              chapterKeys.add(key);
+              subject.chapters.push({
+                id: makeId('chapter'),
+                name: chapterName,
+                theory: false,
+                practice: false,
+                note: ''
+              });
+              addedChapters += 1;
+            });
+
+            if (subject.chapters.length > beforeCount) subject.expanded = true;
+          });
+
+          if (addedChapters > 0) {
+            persist();
+            state.importText = '';
+            let message = '导入成功：新增 ' + addedSubjects + ' 个科目、' + addedChapters + ' 个章节。';
+            if (skippedChapters > 0) message += '已跳过 ' + skippedChapters + ' 个重复章节。';
+            importMessage.value = { type: 'success', text: message };
+          } else {
+            importMessage.value = {
+              type: 'error',
+              text: '没有新增内容，已跳过 ' + skippedChapters + ' 个重复章节。'
+            };
+          }
+        }
+
+        /* ---------- 全局交互 ---------- */
+        function handleGlobalKeydown(event) {
+          if (event.key !== 'Escape') return;
+          hideNoteTooltip();
+          if (taskModalOpen.value) {
+            closeTaskModal();
+            return;
+          }
+          if (focusOpen.value) {
+            closeFocus();
+            return;
+          }
+          if (treeDrawerOpen.value) closeTreeDrawer();
+        }
+
+        watch([taskModalOpen, focusOpen, treeDrawerOpen], function (values) {
+          document.body.style.overflow = (values[0] || values[1] || values[2]) ? 'hidden' : '';
+        }, { immediate: true });
+
+        watch([function () { return state.knowledgeView; }, function () { return state.onlyUnfinished; }, visibleSubjects], function () {
+          if (state.knowledgeView !== 'tree') {
+            treeConnections.value = [];
+            return;
+          }
+          nextTick(function () {
+            observeTreeStage();
+            scheduleTreeConnections();
+          });
+        }, { deep: true });
+
+        watch(treeStage, function (stage) {
+          if (treeStageRefreshTimer) clearTimeout(treeStageRefreshTimer);
+          if (!stage) {
+            treeConnections.value = [];
+            return;
+          }
+          nextTick(function () {
+            observeTreeStage();
+            scheduleTreeConnections();
+            treeStageRefreshTimer = setTimeout(scheduleTreeConnections, 60);
+          });
+        });
+
+        function handleWindowResize() {
+          hideNoteTooltip();
+          scheduleTreeConnections();
+        }
+
+        onMounted(function () {
+          window.addEventListener('keydown', handleGlobalKeydown);
+          window.addEventListener('scroll', hideNoteTooltip, true);
+          window.addEventListener('resize', handleWindowResize);
+          window.addEventListener('beforeunload', flushNotePersistence);
+        });
+
+        onBeforeUnmount(function () {
+          if (toastTimer) clearTimeout(toastTimer);
+          flushNotePersistence();
+          scheduleNoteSave.cancel();
+          noteCountDebouncers.forEach(function (debounced) { debounced.cancel(); });
+          noteCountDebouncers.clear();
+          if (treeConnectionsRaf) cancelAnimationFrame(treeConnectionsRaf);
+          if (treeStageRefreshTimer) clearTimeout(treeStageRefreshTimer);
+          if (treeCanvasSetupTimer) clearTimeout(treeCanvasSetupTimer);
+          if (treeResizeObserver) treeResizeObserver.disconnect();
+          teardownPanzoom();
+          window.removeEventListener('keydown', handleGlobalKeydown);
+          window.removeEventListener('scroll', hideNoteTooltip, true);
+          window.removeEventListener('resize', handleWindowResize);
+          window.removeEventListener('beforeunload', flushNotePersistence);
+          document.body.style.overflow = '';
+        });
+
+        // 初次加载立即保存：旧版数据会在这里升级为 v3，并补上示例周任务
+        persist();
+
+        return {
+          state,
+          storageFailed,
+          importMessage,
+          toast,
+          darkMode,
+          toggleDarkMode,
+          noteTooltip,
+          noteTooltipEl,
+          weekDays,
+          weekRange,
+          todayIndex,
+          totalChapters,
+          completedChapters,
+          remainingChapters,
+          overallPercent,
+          visibleSubjects,
+          visibleChapterCount,
+          weekTaskCount,
+          weekCompletedCount,
+          weekPendingCount,
+          weekCompletionPercent,
+          weekDelayedCount,
+          completedTasks,
+          boardDays,
+          todayTasks,
+          todayPendingCount,
+          todayCompletedCount,
+          todayCompletionPercent,
+          taskModalOpen,
+          taskModalDay,
+          taskForm,
+          subjectSelect,
+          selectedSubject,
+          availableChapters,
+          selectedChapter,
+          selectedTypeAlreadyDone,
+          focusOpen,
+          draggingTaskId,
+          dragOverDay,
+          dragOverComplete,
+          treeDrawerOpen,
+          selectedTreeSubject,
+          selectedTreeChapter,
+          treeViewport,
+          panzoomWorld,
+          treeStage,
+          treeConnections,
+          zoomLevel,
+          focusedSubjectId,
+          canvasReady,
+          isChapterComplete,
+          subjectCompleted,
+          subjectPercent,
+          treeNodeStatus,
+          treeNodeClass,
+          treeNodeStatusClass,
+          chapterProgressPercent,
+          openTreeDrawer,
+          closeTreeDrawer,
+          toggleTreeSubject,
+          focusSubjectFromMap,
+          zoomCanvas,
+          resetCanvasView,
+          chapterNo,
+          panelId,
+          toggleSubject,
+          switchKnowledgeView,
+          toggleChapter,
+          typeLabel,
+          dayName,
+          completeTask,
+          onTaskDragStart,
+          onTaskDragEnd,
+          dropOnDay,
+          dropOnCompleted,
+          onDragLeaveDay,
+          onDragLeaveCompleted,
+          openTaskModal,
+          closeTaskModal,
+          onTaskSubjectChange,
+          addTask,
+          switchTab,
+          openFocus,
+          closeFocus,
+          addTaskFromFocus,
+          undoChange,
+          clearImportMessage,
+          handleImport,
+          hasNote,
+          noteCount,
+          isNoteEditorOpen,
+          toggleNoteEditor,
+          onNoteInput,
+          flushNotePersistence,
+          noteFieldId,
+          notePanelId,
+          taskHasNote,
+          showNoteTooltip,
+          hideNoteTooltip
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
